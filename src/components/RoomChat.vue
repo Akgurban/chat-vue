@@ -23,13 +23,6 @@
       </div>
       <div class="header-actions">
         <Button
-          @click="showChatSettings = !showChatSettings"
-          icon="pi pi-palette"
-          text
-          rounded
-          size="small"
-        />
-        <Button
           @click="showMembers = !showMembers"
           icon="pi pi-users"
           text
@@ -84,60 +77,17 @@
       </div>
     </transition>
 
-    <!-- Chat Settings -->
-    <transition name="slide-down">
-      <div v-if="showChatSettings" class="chat-settings-panel">
-        <div class="settings-grid">
-          <div class="setting-item">
-            <label>Theme</label>
-            <Select
-              v-model="chatSettings.theme"
-              :options="themeOptions"
-              optionLabel="label"
-              optionValue="value"
-              class="w-full"
-            />
-          </div>
-          <div class="setting-item">
-            <label>Bubble Style</label>
-            <Select
-              v-model="chatSettings.bubbleStyle"
-              :options="bubbleOptions"
-              optionLabel="label"
-              optionValue="value"
-              class="w-full"
-            />
-          </div>
-          <div class="setting-item">
-            <label>Color</label>
-            <Select
-              v-model="chatSettings.myMessageColor"
-              :options="colorOptions"
-              optionLabel="label"
-              optionValue="value"
-              class="w-full"
-            />
-          </div>
-          <div class="setting-item flex items-center gap-2">
-            <Checkbox
-              v-model="chatSettings.showAvatars"
-              inputId="avatars"
-              binary
-            />
-            <label for="avatars">Show Avatars</label>
-          </div>
-        </div>
-      </div>
-    </transition>
-
     <!-- Messages Area -->
     <div class="messages-area">
       <MessageList
+        ref="messageListRef"
         :messages="chatStore.roomMessages"
         :theme="chatSettings.theme"
         :bubbleStyle="chatSettings.bubbleStyle"
         :myMessageColor="chatSettings.myMessageColor"
         :showAvatars="chatSettings.showAvatars"
+        chatType="room"
+        :chatId="chatStore.currentRoomId"
       />
     </div>
 
@@ -162,7 +112,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from "vue";
+import { ref, reactive, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import Avatar from "primevue/avatar";
@@ -178,7 +128,7 @@ const chatStore = useChatStore();
 
 const message = ref("");
 const showMembers = ref(false);
-const showChatSettings = ref(false);
+const messageListRef = ref(null);
 
 const chatSettings = reactive({
   theme: "modern",
@@ -228,6 +178,10 @@ function handleSend() {
   if (message.value.trim()) {
     chatStore.sendRoomMessage(message.value.trim());
     message.value = "";
+    // Scroll to bottom after sending message
+    nextTick(() => {
+      messageListRef.value?.scrollToBottom();
+    });
   }
 }
 
@@ -336,13 +290,6 @@ async function handleLeaveRoom() {
 .member-name {
   flex: 1;
   font-size: 14px;
-}
-
-/* Settings Panel */
-.chat-settings-panel {
-  padding: 12px 16px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e5e7eb;
 }
 
 .settings-grid {

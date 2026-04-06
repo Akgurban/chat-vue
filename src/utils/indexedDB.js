@@ -4,7 +4,54 @@ const DB_VERSION = 1;
 
 let db = null;
 
-// Initialize IndexedDB
+// ==================== HELPERS ====================
+
+/**
+ * Helper to clone object for IndexedDB (removes Vue reactivity)
+ */
+function cloneForDB(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+/**
+ * Generic helper for read operations
+ */
+async function readFromStore(storeName, operation) {
+  const database = await getDB();
+  const tx = database.transaction(storeName, "readonly");
+  const store = tx.objectStore(storeName);
+  return operation(store);
+}
+
+/**
+ * Generic helper for write operations
+ */
+async function writeToStore(storeName, operation) {
+  const database = await getDB();
+  const tx = database.transaction(storeName, "readwrite");
+  const store = tx.objectStore(storeName);
+  operation(store);
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Wrap IndexedDB request in a Promise
+ */
+function promisifyRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// ==================== INITIALIZATION ====================
+
+/**
+ * Initialize IndexedDB
+ */
 export function initDB() {
   return new Promise((resolve, reject) => {
     if (db) {
@@ -53,14 +100,14 @@ export function initDB() {
           keyPath: "id",
         });
         messagesStore.createIndex("room_id", "room_id", { unique: false });
-        messagesStore.createIndex("dm_key", "dm_key", { unique: false }); // "sender_id-receiver_id" sorted
+        messagesStore.createIndex("dm_key", "dm_key", { unique: false });
         messagesStore.createIndex("created_at", "created_at", {
           unique: false,
         });
-        messagesStore.createIndex("chat_key", "chat_key", { unique: false }); // "type-id" for easy lookup
+        messagesStore.createIndex("chat_key", "chat_key", { unique: false });
       }
 
-      // Metadata store (for sync info, last fetch time, etc.)
+      // Metadata store (for sync info, scroll positions, etc.)
       if (!database.objectStoreNames.contains("metadata")) {
         database.createObjectStore("metadata", { keyPath: "key" });
       }
@@ -70,7 +117,9 @@ export function initDB() {
   });
 }
 
-// Get database instance
+/**
+ * Get database instance
+ */
 async function getDB() {
   if (!db) {
     await initDB();
@@ -169,11 +218,6 @@ export async function getChat(type, id) {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-}
-
-// Helper to clone object for IndexedDB (removes Vue reactivity)
-function cloneForDB(obj) {
-  return JSON.parse(JSON.stringify(obj));
 }
 
 export async function updateChat(chat) {
@@ -306,6 +350,72 @@ export async function getMetadata(key) {
   });
 }
 
+// ==================== SCROLL POSITION ====================
+
+/**
+ * Save the last visible message ID for scroll position restoration
+ * @param {string} chatType - 'room' or 'direct'
+ * @param {number|string} chatId - Room ID or User ID for DM
+ * @param {number|string} messageId - The message ID that was at the top of viewport
+ * @param {number} userId - Current user ID (for DM key generation)
+ */
+export async function saveScrollPosition(
+  chatType,
+  chatId,
+  messageId,
+  userId = null,
+) {
+  const key = getScrollPositionKey(chatType, chatId, userId);
+  await setMetadata(key, {
+    messageId,
+    savedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Get the saved scroll position for a chat
+ * @param {string} chatType - 'room' or 'direct'
+ * @param {number|string} chatId - Room ID or User ID for DM
+ * @param {number} userId - Current user ID (for DM key generation)
+ * @returns {Promise<{messageId: number|string, savedAt: string}|null>}
+ */
+export async function getScrollPosition(chatType, chatId, userId = null) {
+  const key = getScrollPositionKey(chatType, chatId, userId);
+  return await getMetadata(key);
+}
+
+/**
+ * Clear scroll position for a chat (e.g., when user scrolls to bottom)
+ * @param {string} chatType - 'room' or 'direct'
+ * @param {number|string} chatId - Room ID or User ID for DM
+ * @param {number} userId - Current user ID (for DM key generation)
+ */
+export async function clearScrollPosition(chatType, chatId, userId = null) {
+  const key = getScrollPositionKey(chatType, chatId, userId);
+  const database = await getDB();
+  const tx = database.transaction("metadata", "readwrite");
+  const store = tx.objectStore("metadata");
+
+  return new Promise((resolve, reject) => {
+    const request = store.delete(key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Generate a unique key for scroll position storage
+ */
+function getScrollPositionKey(chatType, chatId, userId = null) {
+  if (chatType === "room") {
+    return `scroll_position_room_${chatId}`;
+  } else {
+    // For DMs, create consistent key regardless of who initiated
+    const ids = [chatId, userId].sort((a, b) => a - b);
+    return `scroll_position_dm_${ids[0]}_${ids[1]}`;
+  }
+}
+
 // ==================== CLEAR DATA ====================
 
 export async function clearAllData() {
@@ -359,6 +469,9 @@ export default {
   getLastMessageId,
   setMetadata,
   getMetadata,
+  saveScrollPosition,
+  getScrollPosition,
+  clearScrollPosition,
   clearAllData,
   clearUserData,
 };

@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { useAuthStore } from "./auth";
 import { useWebSocketStore } from "./websocket";
 import { useNotificationStore } from "./notifications";
@@ -229,7 +229,7 @@ export const useChatStore = defineStore("chat", () => {
       );
       let url = `/api/dm/${userId}`;
       if (lastMsgId) {
-        url += `?after=${lastMsgId}`;
+        url += `?after=${lastMsgId}&unread_only=true`;
       }
       const serverMessages = await authStore.api(url);
 
@@ -376,7 +376,6 @@ export const useChatStore = defineStore("chat", () => {
           }, 2000);
         }
         break;
-
       case "user_online":
       case "user_offline":
         // Update online status in chats store

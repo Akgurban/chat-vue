@@ -16,66 +16,13 @@
           <span class="chat-subtitle">Direct Message</span>
         </div>
       </div>
-      <div class="header-actions">
-        <Button
-          @click="showChatSettings = !showChatSettings"
-          icon="pi pi-palette"
-          text
-          rounded
-          size="small"
-        />
-      </div>
+      <div class="header-actions"></div>
     </div>
-
-    <!-- Chat Settings -->
-    <transition name="slide-down">
-      <div v-if="showChatSettings" class="chat-settings-panel">
-        <div class="settings-grid">
-          <div class="setting-item">
-            <label>Theme</label>
-            <Select
-              v-model="chatSettings.theme"
-              :options="themeOptions"
-              optionLabel="label"
-              optionValue="value"
-              class="w-full"
-            />
-          </div>
-          <div class="setting-item">
-            <label>Bubble Style</label>
-            <Select
-              v-model="chatSettings.bubbleStyle"
-              :options="bubbleOptions"
-              optionLabel="label"
-              optionValue="value"
-              class="w-full"
-            />
-          </div>
-          <div class="setting-item">
-            <label>Color</label>
-            <Select
-              v-model="chatSettings.myMessageColor"
-              :options="colorOptions"
-              optionLabel="label"
-              optionValue="value"
-              class="w-full"
-            />
-          </div>
-          <div class="setting-item flex items-center gap-2">
-            <Checkbox
-              v-model="chatSettings.showAvatars"
-              inputId="dm-avatars"
-              binary
-            />
-            <label for="dm-avatars">Show Avatars</label>
-          </div>
-        </div>
-      </div>
-    </transition>
 
     <!-- Messages Area -->
     <div class="messages-area">
       <MessageList
+        ref="messageListRef"
         :messages="chatStore.dmMessages"
         :theme="chatSettings.theme"
         :bubbleStyle="chatSettings.bubbleStyle"
@@ -84,6 +31,8 @@
         :unreadCount="currentChatUnread"
         :firstUnreadId="firstUnreadMessageId"
         :firstNewMessageId="chatStore.firstNewDmMessageId"
+        chatType="direct"
+        :chatId="chatStore.currentDmUserId"
       />
     </div>
 
@@ -107,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from "vue";
+import { ref, reactive, computed, nextTick } from "vue";
 import { useChatStore } from "../stores/chat";
 import { useChatsStore } from "../stores/chats";
 import InputText from "primevue/inputtext";
@@ -120,7 +69,7 @@ import MessageList from "./MessageList.vue";
 const chatStore = useChatStore();
 const chatsStore = useChatsStore();
 const message = ref("");
-const showChatSettings = ref(false);
+const messageListRef = ref(null);
 
 // Get current chat's unread info
 const currentChat = computed(() => {
@@ -192,6 +141,10 @@ function handleSend() {
   if (message.value.trim()) {
     chatStore.sendDM(message.value.trim());
     message.value = "";
+    // Scroll to bottom after sending message
+    nextTick(() => {
+      messageListRef.value?.scrollToBottom();
+    });
   }
 }
 </script>
@@ -243,13 +196,6 @@ function handleSend() {
 .header-actions {
   display: flex;
   gap: 4px;
-}
-
-/* Settings Panel */
-.chat-settings-panel {
-  padding: 12px 16px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e5e7eb;
 }
 
 .settings-grid {

@@ -104,8 +104,16 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onMounted, computed } from "vue";
+import {
+  ref,
+  watch,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+  computed,
+} from "vue";
 import { useAuthStore } from "../stores/auth";
+import * as db from "../utils/indexedDB";
 import ScrollPanel from "primevue/scrollpanel";
 import Avatar from "primevue/avatar";
 import Button from "primevue/button";
@@ -147,6 +155,15 @@ const props = defineProps({
     type: [Number, String],
     default: null,
   },
+  // New props for scroll position persistence
+  chatType: {
+    type: String,
+    default: null, // 'room' or 'direct'
+  },
+  chatId: {
+    type: [Number, String],
+    default: null, // Room ID or DM User ID
+  },
 });
 
 const authStore = useAuthStore();
@@ -156,6 +173,7 @@ const showScrollButton = ref(true);
 const isAtBottom = ref(false);
 const newMessagesCount = ref(0);
 const lastMessageCount = ref(0);
+const savedScrollMessageId = ref(null);
 
 const themeClass = computed(() => `theme-${props.theme}`);
 
@@ -219,6 +237,17 @@ function scrollToBottom(smooth = true) {
         isAtBottom.value = true;
         showScrollButton.value = false;
         newMessagesCount.value = 0;
+
+        // Clear saved scroll position since user is at bottom
+        if (props.chatType && props.chatId) {
+          db.clearScrollPosition(
+            props.chatType,
+            props.chatId,
+            authStore.user?.id,
+          ).catch((err) =>
+            console.error("Failed to clear scroll position:", err),
+          );
+        }
       }
     }
   });
@@ -293,13 +322,120 @@ function handleScroll(event) {
   });
 }
 
+/**
+ * Get the message ID that's currently visible at the top of the viewport
+ * This will be used to restore scroll position when re-entering the chat
+ */
+function getVisibleTopMessageId() {
+  if (!scrollPanelRef.value) return null;
+
+  const scrollContent =
+    scrollPanelRef.value.$el?.querySelector(".p-scrollpanel-content") ||
+    scrollPanelRef.value.$el?.querySelector(".p-scrollpanel-content-container");
+
+  if (!scrollContent) return null;
+
+  const scrollTop = scrollContent.scrollTop;
+  const messageElements = scrollContent.querySelectorAll("[data-message-id]");
+
+  for (const element of messageElements) {
+    const rect = element.getBoundingClientRect();
+    const containerRect = scrollContent.getBoundingClientRect();
+
+    // Find the first message that's visible in the viewport
+    if (rect.top >= containerRect.top - 50) {
+      return element.getAttribute("data-message-id");
+    }
+  }
+
+  // Fallback: return the first message ID
+  if (messageElements.length > 0) {
+    return messageElements[0].getAttribute("data-message-id");
+  }
+
+  return null;
+}
+
+/**
+ * Scroll to a specific message by its ID
+ */
+function scrollToMessage(messageId, behavior = "instant") {
+  nextTick(() => {
+    if (!scrollPanelRef.value || !messageId) return;
+
+    const scrollContent =
+      scrollPanelRef.value.$el?.querySelector(".p-scrollpanel-content") ||
+      scrollPanelRef.value.$el?.querySelector(
+        ".p-scrollpanel-content-container",
+      );
+
+    if (!scrollContent) return;
+
+    const messageElement = scrollContent.querySelector(
+      `[data-message-id="${messageId}"]`,
+    );
+
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior, block: "start" });
+      showScrollButton.value = true;
+      isAtBottom.value = false;
+    }
+  });
+}
+
+/**
+ * Save current scroll position to IndexedDB
+ */
+async function saveCurrentScrollPosition() {
+  if (!props.chatType || !props.chatId) return;
+  const visibleMessageId = getVisibleTopMessageId();
+  if (!visibleMessageId) return;
+  try {
+    await db.saveScrollPosition(
+      props.chatType,
+      props.chatId,
+      visibleMessageId,
+      authStore.user?.id,
+    );
+  } catch (err) {
+    console.error("Failed to save scroll position:", err);
+  }
+}
+
+/**
+ * Load saved scroll position from IndexedDB
+ */
+async function loadSavedScrollPosition() {
+  if (!props.chatType || !props.chatId) return null;
+
+  try {
+    const scrollData = await db.getScrollPosition(
+      props.chatType,
+      props.chatId,
+      authStore.user?.id,
+    );
+    return scrollData?.messageId || null;
+  } catch (err) {
+    console.error("Failed to load scroll position:", err);
+    return null;
+  }
+}
+
 // Initial state - check if content is scrollable
-onMounted(() => {
+onMounted(async () => {
   lastMessageCount.value = props.messages.length;
 
   // Check after content renders
-  nextTick(() => {
-    setTimeout(() => {
+  nextTick(async () => {
+    setTimeout(async () => {
+      // Priority 0: Check for saved scroll position from IndexedDB
+      const savedMessageId = await loadSavedScrollPosition();
+      if (savedMessageId) {
+        savedScrollMessageId.value = savedMessageId;
+        scrollToMessage(savedMessageId, "instant");
+        return;
+      }
+
       // Priority 1: If there's a "new messages" divider, scroll to it
       if (props.firstNewMessageId) {
         const scrollContent =
@@ -333,6 +469,107 @@ onMounted(() => {
     }, 150);
   });
 });
+
+// Save scroll position before unmounting (leaving chat)
+onBeforeUnmount(() => {
+  saveCurrentScrollPosition();
+});
+
+// Track previous chatId/chatType to save scroll position when switching chats
+const previousChatId = ref(null);
+const previousChatType = ref(null);
+
+// Watch for chat changes (when switching between DMs or rooms without unmounting)
+watch(
+  () => [props.chatType, props.chatId],
+  async ([newType, newId], [oldType, oldId]) => {
+    // Save scroll position for the previous chat before switching
+    if (oldType && oldId && (oldType !== newType || oldId !== newId)) {
+      // Save for the OLD chat
+      const visibleMessageId = getVisibleTopMessageId();
+      if (visibleMessageId && !isAtBottom.value) {
+        try {
+          await db.saveScrollPosition(
+            oldType,
+            oldId,
+            visibleMessageId,
+            authStore.user?.id,
+          );
+        } catch (err) {
+          console.error(
+            "Failed to save scroll position for previous chat:",
+            err,
+          );
+        }
+      } else if (isAtBottom.value) {
+        // Clear scroll position if user was at bottom
+        try {
+          await db.clearScrollPosition(oldType, oldId, authStore.user?.id);
+        } catch (err) {
+          console.error("Failed to clear scroll position:", err);
+        }
+      }
+    }
+
+    // Update previous values
+    previousChatId.value = newId;
+    previousChatType.value = newType;
+
+    // Reset state for new chat
+    isAtBottom.value = false;
+    showScrollButton.value = true;
+    newMessagesCount.value = 0;
+
+    // Load scroll position for the new chat after messages are rendered
+    if (newType && newId) {
+      nextTick(async () => {
+        setTimeout(async () => {
+          // Priority 0: Check for saved scroll position from IndexedDB
+          const savedMessageId = await loadSavedScrollPosition();
+          if (savedMessageId) {
+            savedScrollMessageId.value = savedMessageId;
+            scrollToMessage(savedMessageId, "instant");
+            return;
+          }
+
+          // Priority 1: If there's a "new messages" divider, scroll to it
+          if (props.firstNewMessageId) {
+            const scrollContent =
+              scrollPanelRef.value?.$el?.querySelector(
+                ".p-scrollpanel-content",
+              ) ||
+              scrollPanelRef.value?.$el?.querySelector(
+                ".p-scrollpanel-content-container",
+              );
+            const dividerElement = scrollContent?.querySelector(
+              "[data-new-messages-divider]",
+            );
+            if (dividerElement) {
+              dividerElement.scrollIntoView({
+                behavior: "instant",
+                block: "start",
+              });
+              showScrollButton.value = true;
+              isAtBottom.value = false;
+              return;
+            }
+          }
+
+          // Priority 2: If there are unread messages, scroll to first unread
+          if (props.unreadCount > 0 && props.firstUnreadId) {
+            scrollToFirstUnread();
+            showScrollButton.value = true;
+            isAtBottom.value = false;
+          } else {
+            // No unread messages - instant scroll to bottom (no animation)
+            scrollToBottom(false);
+          }
+        }, 150);
+      });
+    }
+  },
+  { immediate: false },
+);
 
 // Check if content is scrollable and update button visibility
 function checkScrollState() {
@@ -377,6 +614,11 @@ watch(
     }, 100);
   },
 );
+
+// Expose scrollToBottom so parent components can call it
+defineExpose({
+  scrollToBottom,
+});
 </script>
 
 <style scoped>
