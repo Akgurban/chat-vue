@@ -578,7 +578,7 @@ onMounted(async () => {
   // If messages already exist on mount, handle initial scroll
   if (props.messages.length > 0) {
     initialScrollDone.value = true;
-    
+
     // Check after content renders
     nextTick(async () => {
       setTimeout(async () => {
@@ -595,7 +595,9 @@ onMounted(async () => {
         } else if (props.firstNewMessageId) {
           // Priority 1: If there's a "new messages" divider, scroll to it
           const scrollContent =
-            scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
+            scrollPanelRef.value?.$el?.querySelector(
+              ".p-scrollpanel-content",
+            ) ||
             scrollPanelRef.value?.$el?.querySelector(
               ".p-scrollpanel-content-container",
             );
@@ -631,6 +633,8 @@ onMounted(async () => {
 
 // Save scroll position before unmounting (leaving chat)
 onBeforeUnmount(() => {
+  console.log("Component unmounting, saving scroll position");
+
   saveCurrentScrollPosition();
   cleanupMessageObserver();
   cleanupBottomObserver();
@@ -640,12 +644,11 @@ onBeforeUnmount(() => {
 
 // Handle browser refresh/close - save scroll position synchronously
 function handleBeforeUnload() {
-  if (!props.chatId || isAtBottom.value) return;
+  if (!props.chatId) return;
 
   const visibleMessageId = getVisibleTopMessageId();
   if (!visibleMessageId) return;
 
-  // Use synchronous localStorage as fallback for beforeunload
   // IndexedDB is async and may not complete before page unloads
   try {
     const ids = [props.chatId, authStore.user?.id].sort((a, b) => a - b);
@@ -745,7 +748,7 @@ watch(
     // Handle initial messages load (when messages go from 0 to some value)
     if (oldLength === 0 && newLength > 0 && !initialScrollDone.value) {
       initialScrollDone.value = true;
-      
+
       // Wait for DOM to update
       await nextTick();
       setTimeout(async () => {
@@ -757,11 +760,20 @@ watch(
         } else if (props.firstNewMessageId) {
           // Priority 1: Scroll to new messages divider
           const scrollContent =
-            scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
-            scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content-container");
-          const dividerElement = scrollContent?.querySelector("[data-new-messages-divider]");
+            scrollPanelRef.value?.$el?.querySelector(
+              ".p-scrollpanel-content",
+            ) ||
+            scrollPanelRef.value?.$el?.querySelector(
+              ".p-scrollpanel-content-container",
+            );
+          const dividerElement = scrollContent?.querySelector(
+            "[data-new-messages-divider]",
+          );
           if (dividerElement) {
-            dividerElement.scrollIntoView({ behavior: "instant", block: "start" });
+            dividerElement.scrollIntoView({
+              behavior: "instant",
+              block: "start",
+            });
             showScrollButton.value = true;
             isAtBottom.value = false;
           } else {
@@ -771,14 +783,14 @@ watch(
           // No saved position - scroll to bottom
           scrollToBottom(false);
         }
-        
+
         // Setup observers after initial scroll
         setupMessageObserver();
         setupBottomObserver();
       }, 50);
       return;
     }
-    
+
     // Handle subsequent new messages (not initial load)
     if (newLength > oldLength && initialScrollDone.value) {
       // New message arrived
