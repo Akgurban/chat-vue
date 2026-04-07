@@ -4,15 +4,15 @@
     <div class="chat-header">
       <div class="header-info">
         <Avatar
-          :label="chatStore.currentDmUsername?.charAt(0).toUpperCase()"
+          :label="displayUsername?.charAt(0).toUpperCase()"
           :style="{
-            backgroundColor: getAvatarColor(chatStore.currentDmUsername),
+            backgroundColor: getAvatarColor(displayUsername),
           }"
           shape="circle"
           class="text-white"
         />
         <div class="header-text">
-          <span class="chat-title">{{ chatStore.currentDmUsername }}</span>
+          <span class="chat-title">{{ displayUsername }}</span>
           <span class="chat-subtitle">Direct Message</span>
         </div>
       </div>
@@ -70,6 +70,7 @@
 
 <script setup>
 import { ref, reactive, computed, nextTick } from "vue";
+import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useChatsStore } from "../stores/chats";
 import { useAuthStore } from "../stores/auth";
@@ -85,15 +86,19 @@ const chatStore = useChatStore();
 const chatsStore = useChatsStore();
 const authStore = useAuthStore();
 const wsStore = useWebSocketStore();
+const router = useRouter();
 const message = ref("");
 const messageListRef = ref(null);
 const clearing = ref(false);
 
 // Get current chat's unread info
 const currentChat = computed(() => {
-  return chatsStore.chats.find(
-    (c) => c.type === "direct" && c.id === chatStore.currentDmUserId,
-  );
+  return chatsStore.chats.find((c) => c.id === chatStore.currentDmUserId);
+});
+
+// Get the real username from the chat in sidebar
+const displayUsername = computed(() => {
+  return currentChat.value?.name || chatStore.currentDmUsername || "User";
 });
 
 const currentChatUnread = computed(() => {
@@ -209,7 +214,7 @@ async function confirmClearChat() {
   if (!chatStore.currentDmUserId) return;
 
   const confirmed = window.confirm(
-    `Are you sure you want to clear this chat with ${chatStore.currentDmUsername}? This action cannot be undone.`,
+    `Are you sure you want to clear this chat with ${displayUsername.value}? This action cannot be undone.`,
   );
 
   if (!confirmed) return;
@@ -218,7 +223,7 @@ async function confirmClearChat() {
   try {
     const success = await chatsStore.clearChat(chatStore.currentDmUserId);
     if (success) {
-      // Clear local messages
+      // Clear local messages - chat stays open with empty messages
       chatStore.dmMessages.length = 0;
     }
   } finally {

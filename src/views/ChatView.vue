@@ -36,10 +36,64 @@
           <InputIcon class="pi pi-search" />
           <InputText
             v-model="searchQuery"
-            placeholder="Search"
+            placeholder="Search chats or users..."
             class="w-full"
+            @input="handleSearchInput"
+          />
+          <InputIcon
+            v-if="searchQuery"
+            class="pi pi-times cursor-pointer"
+            @click="clearSearch"
           />
         </IconField>
+      </div>
+
+      <!-- Search Results (Users from API) -->
+      <div v-if="searchQuery && searchQuery.length >= 2" class="search-results">
+        <!-- Loading -->
+        <div v-if="searchLoading" class="search-loading">
+          <i class="pi pi-spin pi-spinner"></i>
+          <span>Searching users...</span>
+        </div>
+
+        <!-- User Search Results -->
+        <div v-else-if="searchResults.length > 0" class="search-section">
+          <div class="search-section-title">
+            <i class="pi pi-users"></i>
+            <span>Users</span>
+          </div>
+          <div
+            v-for="user in searchResults"
+            :key="'search-' + user.id"
+            @click="startChatWithUser(user)"
+            class="search-item"
+          >
+            <Avatar
+              :label="user.username?.charAt(0).toUpperCase()"
+              :style="{ backgroundColor: getAvatarColor(user.username) }"
+              shape="circle"
+              class="text-white"
+            />
+            <div class="search-item-info">
+              <span class="search-item-name">{{ user.username }}</span>
+              <span class="search-item-email" v-if="user.email">{{
+                user.email
+              }}</span>
+            </div>
+            <span
+              :class="['status-dot', user.is_online ? 'online' : 'offline']"
+            ></span>
+          </div>
+        </div>
+
+        <!-- No Results -->
+        <div
+          v-else-if="!searchLoading && searchQuery.length >= 2"
+          class="search-empty"
+        >
+          <i class="pi pi-search"></i>
+          <span>No users found</span>
+        </div>
       </div>
 
       <!-- Chats List -->
@@ -186,9 +240,13 @@ const notificationStore = useNotificationStore();
 const chatsStore = useChatsStore();
 
 const searchQuery = ref("");
+const searchResults = ref([]);
+const searchLoading = ref(false);
 const showMenu = ref(false);
 const showSettings = ref(false);
 const windowWidth = ref(window.innerWidth);
+
+let searchDebounceTimer = null;
 
 const isMobile = computed(() => windowWidth.value < 768);
 const isChatOpen = computed(() => route.name === "dm");
@@ -205,6 +263,59 @@ const filteredChats = computed(() => {
   }
   return result;
 });
+
+// Handle search input with debounce
+function handleSearchInput() {
+  clearTimeout(searchDebounceTimer);
+
+  if (!searchQuery.value || searchQuery.value.length < 2) {
+    searchResults.value = [];
+    searchLoading.value = false;
+    return;
+  }
+
+  searchLoading.value = true;
+  searchDebounceTimer = setTimeout(async () => {
+    await performSearch();
+  }, 300);
+}
+
+// Perform the actual search
+async function performSearch() {
+  if (!searchQuery.value || searchQuery.value.length < 2) {
+    searchResults.value = [];
+    searchLoading.value = false;
+    return;
+  }
+
+  try {
+    const results = await chatsStore.searchUsers(searchQuery.value);
+    // Filter out current user and users already in chat list
+    const existingChatIds = chatsStore.chats.map((c) => c.id);
+    searchResults.value = results.filter(
+      (user) =>
+        user.id !== authStore.user?.id && !existingChatIds.includes(user.id),
+    );
+  } catch (err) {
+    console.error("Search failed:", err);
+    searchResults.value = [];
+  } finally {
+    searchLoading.value = false;
+  }
+}
+
+// Clear search
+function clearSearch() {
+  searchQuery.value = "";
+  searchResults.value = [];
+  searchLoading.value = false;
+}
+
+// Start chat with a user from search results
+function startChatWithUser(user) {
+  clearSearch();
+  router.push(`/dm/${user.id}`);
+}
 
 function handleResize() {
   windowWidth.value = window.innerWidth;
@@ -336,6 +447,110 @@ function formatTime(timestamp) {
 .sidebar-search {
   padding: 12px 16px;
   border-bottom: 1px solid #e5e7eb;
+}
+
+.search-input-wrapper {
+  position: relative;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.search-clear-btn:hover {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* Search Results */
+.search-results {
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.search-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #64748b;
+  font-size: 14px;
+  gap: 8px;
+}
+
+.search-section {
+  padding: 8px;
+}
+
+.search-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  padding: 8px 12px 4px;
+  letter-spacing: 0.5px;
+}
+
+.search-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.search-item:hover {
+  background: #e2e8f0;
+}
+
+.search-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-item-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-item-email {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #94a3b8;
+  font-size: 14px;
+  gap: 4px;
 }
 
 .sidebar-filters {

@@ -226,6 +226,18 @@ export async function updateChat(chat) {
   });
 }
 
+export async function deleteChat(id) {
+  const database = await getDB();
+  const tx = database.transaction("chats", "readwrite");
+  const store = tx.objectStore("chats");
+
+  return new Promise((resolve, reject) => {
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
 // ==================== MESSAGES (DM Messages) ====================
 
 // Generate DM key for indexing
@@ -443,6 +455,7 @@ export default {
   getChats,
   getChat,
   updateChat,
+  deleteChat,
   saveMessages,
   saveMessage,
   getMessagesByDM,
