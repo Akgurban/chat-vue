@@ -42,28 +42,6 @@
         </IconField>
       </div>
 
-      <!-- Filter Tabs -->
-      <div class="sidebar-filters">
-        <div
-          v-for="filter in filterOptions"
-          :key="filter.value"
-          @click="chatsStore.setFilter(filter.value)"
-          :class="[
-            'filter-tab',
-            { active: chatsStore.currentFilter === filter.value },
-          ]"
-        >
-          <i :class="filter.icon"></i>
-          <span>{{ filter.label }}</span>
-          <Badge
-            v-if="chatsStore.unreadByType[filter.value] > 0"
-            :value="chatsStore.unreadByType[filter.value]"
-            severity="danger"
-            class="ml-1"
-          />
-        </div>
-      </div>
-
       <!-- Chats List -->
       <div class="chats-list">
         <div
@@ -144,11 +122,7 @@
           </div>
         </TransitionGroup>
 
-        <!-- Create Room Button -->
-        <div class="create-room-btn" @click="router.push('/create-room')">
-          <i class="pi pi-plus"></i>
-          <span>Create Room</span>
-        </div>
+        <!-- End of chats list -->
       </div>
 
       <!-- Logout at bottom -->
@@ -216,17 +190,11 @@ const showMenu = ref(false);
 const showSettings = ref(false);
 const windowWidth = ref(window.innerWidth);
 
-const filterOptions = [
-  { label: "All", value: "all", icon: "pi pi-list" },
-  { label: "DMs", value: "direct", icon: "pi pi-user" },
-  { label: "Rooms", value: "room", icon: "pi pi-users" },
-];
-
 const isMobile = computed(() => windowWidth.value < 768);
-const isChatOpen = computed(() => route.name === "dm" || route.name === "room");
+const isChatOpen = computed(() => route.name === "dm");
 
 const filteredChats = computed(() => {
-  let result = chatsStore.filteredChats;
+  let result = chatsStore.chats;
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
     result = result.filter(
@@ -271,13 +239,6 @@ async function initializeApp() {
     wsStore.connect();
     wsStore.addMessageHandler(chatStore.handleWebSocketMessage);
 
-    // Load data (will also save to cache)
-    chatStore.loadUsers();
-    chatStore.loadRooms();
-    chatStore.loadMyRooms();
-    notificationStore.fetchUnreadCount();
-    notificationStore.fetchAllUnreadCounts();
-
     // Fetch chats from server (updates cache)
     await chatsStore.fetchChats();
 
@@ -296,18 +257,11 @@ function handleLogout() {
 }
 
 function openChat(chat) {
-  if (chat.type === "direct") {
-    router.push(`/dm/${chat.id}`);
-  } else {
-    router.push(`/room/${chat.id}`);
-  }
+  router.push(`/dm/${chat.id}`);
 }
 
 function isActiveChat(chat) {
-  if (chat.type === "direct") {
-    return route.name === "dm" && route.params.userId == chat.id;
-  }
-  return route.name === "room" && route.params.roomId == chat.id;
+  return route.name === "dm" && route.params.userId == chat.id;
 }
 
 function goBack() {
@@ -315,7 +269,7 @@ function goBack() {
 }
 
 function getTypingUser(chat) {
-  return chatsStore.getTypingUser(chat.type, chat.id);
+  return chatsStore.getTypingUser(chat.id);
 }
 
 function getAvatarColor(name) {
@@ -561,34 +515,6 @@ function formatTime(timestamp) {
 
 .unread-badge {
   flex-shrink: 0;
-}
-
-/* Create Room Button */
-.create-room-btn {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  margin-top: 8px;
-  border-radius: 12px;
-  cursor: pointer;
-  color: #6366f1;
-  font-weight: 500;
-  transition: all 0.15s;
-}
-
-.create-room-btn:hover {
-  background: #e0e7ff;
-}
-
-.create-room-btn i {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #e0e7ff;
-  border-radius: 50%;
 }
 
 /* Sidebar Footer */

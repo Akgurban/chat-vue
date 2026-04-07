@@ -65,16 +65,6 @@
               inputId="mention_notify"
             />
           </div>
-
-          <div class="flex items-center justify-between">
-            <label for="room_msg_notify" class="text-gray-600"
-              >Room messages</label
-            >
-            <ToggleSwitch
-              v-model="preferences.room_message_notify"
-              inputId="room_msg_notify"
-            />
-          </div>
         </div>
 
         <Divider />

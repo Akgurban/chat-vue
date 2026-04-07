@@ -51,20 +51,22 @@ async function loadDM() {
   try {
     const userId = parseInt(props.userId);
 
-    // Find user in available users
-    if (chatStore.users.length === 0) {
-      await chatStore.loadUsers();
+    // First check if we have this chat in the chats list
+    const chat = chatsStore.chats.find((c) => c.id === userId);
+
+    // Get username from chat, users list, or use a placeholder
+    let username = chat?.name;
+
+    if (!username) {
+      const user = chatStore.users.find((u) => u.id === userId);
+      username = user?.username;
     }
 
-    const user = chatStore.users.find((u) => u.id === userId);
+    // Open the DM even if we don't have the username yet (it will be fetched)
+    await chatStore.openDM(userId, username || "User");
 
-    if (user) {
-      await chatStore.openDM(userId, user.username);
-      // Mark DM as read
-      chatsStore.markDmAsRead(userId);
-    } else {
-      error.value = "This user doesn't exist.";
-    }
+    // Mark DM as read
+    chatsStore.markDmAsRead(userId);
   } catch (err) {
     console.error("Failed to load DM:", err);
     error.value = "Failed to load conversation. Please try again.";

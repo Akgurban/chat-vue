@@ -31,18 +31,14 @@
     </Card>
 
     <div class="flex gap-5 flex-col lg:flex-row">
-      <!-- Left Panel: Users & Rooms -->
+      <!-- Left Panel: Users -->
       <div class="w-full lg:w-72 space-y-5">
         <UsersList />
-        <RoomsList />
-        <MyRoomsList />
       </div>
 
       <!-- Right Panel: Chat Area -->
       <div class="flex-1">
-        <CreateRoomForm v-if="chatStore.chatView === 'createRoom'" />
-        <RoomChat v-else-if="chatStore.chatView === 'room'" />
-        <DirectMessageChat v-else-if="chatStore.chatView === 'dm'" />
+        <DirectMessageChat v-if="chatStore.chatView === 'dm'" />
         <DefaultView v-else />
       </div>
     </div>
@@ -59,10 +55,6 @@ import Button from "primevue/button";
 import Avatar from "primevue/avatar";
 import ConnectionStatus from "./ConnectionStatus.vue";
 import UsersList from "./UsersList.vue";
-import RoomsList from "./RoomsList.vue";
-import MyRoomsList from "./MyRoomsList.vue";
-import CreateRoomForm from "./CreateRoomForm.vue";
-import RoomChat from "./RoomChat.vue";
 import DirectMessageChat from "./DirectMessageChat.vue";
 import DefaultView from "./DefaultView.vue";
 import NotificationBell from "./NotificationBell.vue";

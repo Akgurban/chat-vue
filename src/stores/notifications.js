@@ -10,7 +10,6 @@ export const useNotificationStore = defineStore("notifications", () => {
   const unreadCounts = ref({
     total_unread: 0,
     direct_message_unread: 0,
-    room_unread: {},
     notification_unread: 0,
   });
   const loading = ref(false);
@@ -33,25 +32,6 @@ export const useNotificationStore = defineStore("notifications", () => {
       console.error("Failed to fetch notifications:", err);
     } finally {
       loading.value = false;
-    }
-  }
-
-  // Fetch unread count
-  async function fetchUnreadCount() {
-    try {
-      const data = await authStore.api("/api/notifications/count");
-      unreadCounts.value.notification_unread = data.count;
-    } catch (err) {
-      console.error("Failed to fetch unread count:", err);
-    }
-  }
-
-  // Fetch all unread counts
-  async function fetchAllUnreadCounts() {
-    try {
-      unreadCounts.value = await authStore.api("/api/notifications/counts");
-    } catch (err) {
-      console.error("Failed to fetch unread counts:", err);
     }
   }
 
@@ -85,24 +65,8 @@ export const useNotificationStore = defineStore("notifications", () => {
         n.read_at = new Date().toISOString();
       });
       unreadCounts.value.notification_unread = 0;
-      await fetchAllUnreadCounts();
     } catch (err) {
       console.error("Failed to mark all as read:", err);
-    }
-  }
-
-  // Delete notification
-  async function deleteNotification(notificationId) {
-    try {
-      await authStore.api(`/api/notifications/${notificationId}`, {
-        method: "DELETE",
-      });
-      notifications.value = notifications.value.filter(
-        (n) => n.id !== notificationId,
-      );
-      await fetchUnreadCount();
-    } catch (err) {
-      console.error("Failed to delete notification:", err);
     }
   }
 
@@ -186,7 +150,6 @@ export const useNotificationStore = defineStore("notifications", () => {
     unreadCounts.value = {
       total_unread: 0,
       direct_message_unread: 0,
-      room_unread: {},
       notification_unread: 0,
     };
   }
@@ -199,11 +162,8 @@ export const useNotificationStore = defineStore("notifications", () => {
     unreadCount,
     totalUnread,
     fetchNotifications,
-    fetchUnreadCount,
-    fetchAllUnreadCounts,
     markAsRead,
     markAllAsRead,
-    deleteNotification,
     fetchPreferences,
     updatePreferences,
     subscribeToPush,

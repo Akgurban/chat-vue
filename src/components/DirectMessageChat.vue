@@ -16,7 +16,18 @@
           <span class="chat-subtitle">Direct Message</span>
         </div>
       </div>
-      <div class="header-actions"></div>
+      <div class="header-actions">
+        <Button
+          icon="pi pi-trash"
+          severity="danger"
+          text
+          rounded
+          size="small"
+          v-tooltip.bottom="'Clear chat'"
+          @click="confirmClearChat"
+          :loading="clearing"
+        />
+      </div>
     </div>
 
     <!-- Messages Area -->
@@ -33,6 +44,8 @@
         :firstNewMessageId="chatStore.firstNewDmMessageId"
         chatType="direct"
         :chatId="chatStore.currentDmUserId"
+        @messageRead="handleMessageRead"
+        @markAllRead="handleMarkAllRead"
       />
     </div>
 
@@ -59,6 +72,8 @@
 import { ref, reactive, computed, nextTick } from "vue";
 import { useChatStore } from "../stores/chat";
 import { useChatsStore } from "../stores/chats";
+import { useAuthStore } from "../stores/auth";
+import { useWebSocketStore } from "../stores/websocket";
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
 import Avatar from "primevue/avatar";
@@ -68,8 +83,11 @@ import MessageList from "./MessageList.vue";
 
 const chatStore = useChatStore();
 const chatsStore = useChatsStore();
+const authStore = useAuthStore();
+const wsStore = useWebSocketStore();
 const message = ref("");
 const messageListRef = ref(null);
+const clearing = ref(false);
 
 // Get current chat's unread info
 const currentChat = computed(() => {
@@ -145,6 +163,66 @@ function handleSend() {
     nextTick(() => {
       messageListRef.value?.scrollToBottom();
     });
+  }
+}
+
+/**
+ * Handle individual message being read (via Intersection Observer)
+ * Send WebSocket event to mark this specific message as read
+ */
+function handleMessageRead(messageId) {
+  if (!chatStore.currentDmUserId || !messageId) return;
+
+  // Send WebSocket message to mark this message as read
+  wsStore.send("message_read", {
+    message_id: messageId,
+    user_id: chatStore.currentDmUserId,
+    type: "direct",
+  });
+
+  // Decrease unread count in local state
+  chatsStore.decreaseUnreadCount("direct", chatStore.currentDmUserId);
+}
+
+/**
+ * Handle mark all messages as read (when clicking scroll to bottom)
+ * Calls the API to mark all messages as read
+ */
+async function handleMarkAllRead() {
+  if (!chatStore.currentDmUserId) return;
+
+  try {
+    await authStore.api(`/api/dm/read/${chatStore.currentDmUserId}`, {
+      method: "POST",
+    });
+    // Update local state
+    chatsStore.markDmAsRead(chatStore.currentDmUserId);
+  } catch (err) {
+    console.error("Failed to mark messages as read:", err);
+  }
+}
+
+/**
+ * Confirm and clear chat
+ */
+async function confirmClearChat() {
+  if (!chatStore.currentDmUserId) return;
+
+  const confirmed = window.confirm(
+    `Are you sure you want to clear this chat with ${chatStore.currentDmUsername}? This action cannot be undone.`,
+  );
+
+  if (!confirmed) return;
+
+  clearing.value = true;
+  try {
+    const success = await chatsStore.clearChat(chatStore.currentDmUserId);
+    if (success) {
+      // Clear local messages
+      chatStore.dmMessages.length = 0;
+    }
+  } finally {
+    clearing.value = false;
   }
 }
 </script>

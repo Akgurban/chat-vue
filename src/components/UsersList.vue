@@ -6,17 +6,7 @@
         <span>Users</span>
       </div>
     </template>
-    <template #header>
-      <div class="flex justify-end px-4 pt-4">
-        <Button
-          @click="chatStore.loadUsers"
-          icon="pi pi-refresh"
-          size="small"
-          text
-          rounded
-        />
-      </div>
-    </template>
+
     <template #content>
       <Listbox
         :options="chatStore.users"

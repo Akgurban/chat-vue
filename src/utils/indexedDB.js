@@ -83,28 +83,25 @@ export function initDB() {
         usersStore.createIndex("username", "username", { unique: false });
       }
 
-      // Chats store (unified list of rooms and DMs)
+      // Chats store (DM conversations)
       if (!database.objectStoreNames.contains("chats")) {
         const chatsStore = database.createObjectStore("chats", {
-          keyPath: ["type", "id"],
+          keyPath: "id",
         });
-        chatsStore.createIndex("type", "type", { unique: false });
         chatsStore.createIndex("last_message_at", "last_message_at", {
           unique: false,
         });
       }
 
-      // Messages store (both room and DM messages)
+      // Messages store (DM messages)
       if (!database.objectStoreNames.contains("messages")) {
         const messagesStore = database.createObjectStore("messages", {
           keyPath: "id",
         });
-        messagesStore.createIndex("room_id", "room_id", { unique: false });
         messagesStore.createIndex("dm_key", "dm_key", { unique: false });
         messagesStore.createIndex("created_at", "created_at", {
           unique: false,
         });
-        messagesStore.createIndex("chat_key", "chat_key", { unique: false });
       }
 
       // Metadata store (for sync info, scroll positions, etc.)
@@ -135,7 +132,6 @@ export async function saveUsers(users) {
   const store = tx.objectStore("users");
 
   for (const user of users) {
-    // Clone to remove Vue reactivity
     store.put(cloneForDB(user));
   }
 
@@ -169,7 +165,7 @@ export async function getUser(userId) {
   });
 }
 
-// ==================== CHATS ====================
+// ==================== CHATS (DM Conversations) ====================
 
 export async function saveChats(chats) {
   const database = await getDB();
@@ -177,7 +173,6 @@ export async function saveChats(chats) {
   const store = tx.objectStore("chats");
 
   for (const chat of chats) {
-    // Clone to remove Vue reactivity
     store.put(cloneForDB(chat));
   }
 
@@ -195,7 +190,6 @@ export async function getChats() {
   return new Promise((resolve, reject) => {
     const request = store.getAll();
     request.onsuccess = () => {
-      // Sort by last_message_at descending
       const chats = request.result || [];
       chats.sort((a, b) => {
         const dateA = new Date(a.last_message_at || 0);
@@ -208,13 +202,13 @@ export async function getChats() {
   });
 }
 
-export async function getChat(type, id) {
+export async function getChat(id) {
   const database = await getDB();
   const tx = database.transaction("chats", "readonly");
   const store = tx.objectStore("chats");
 
   return new Promise((resolve, reject) => {
-    const request = store.get([type, id]);
+    const request = store.get(id);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -226,37 +220,29 @@ export async function updateChat(chat) {
   const store = tx.objectStore("chats");
 
   return new Promise((resolve, reject) => {
-    // Clone to remove Vue reactivity
     const request = store.put(cloneForDB(chat));
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-// ==================== MESSAGES ====================
+// ==================== MESSAGES (DM Messages) ====================
 
-// Generate chat key for indexing
-function getChatKey(message, type) {
-  if (type === "room") {
-    return `room-${message.room_id}`;
-  } else {
-    // For DMs, create a consistent key regardless of sender/receiver order
-    const ids = [message.sender_id, message.receiver_id].sort((a, b) => a - b);
-    return `direct-${ids[0]}-${ids[1]}`;
-  }
+// Generate DM key for indexing
+function getDMKey(message) {
+  const ids = [message.sender_id, message.receiver_id].sort((a, b) => a - b);
+  return `dm-${ids[0]}-${ids[1]}`;
 }
 
-export async function saveMessages(messages, type) {
+export async function saveMessages(messages) {
   const database = await getDB();
   const tx = database.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
 
   for (const message of messages) {
-    // Clone and add chat_key for easy lookup
     const msgWithKey = cloneForDB({
       ...message,
-      chat_key: getChatKey(message, type),
-      message_type: type,
+      dm_key: getDMKey(message),
     });
     store.put(msgWithKey);
   }
@@ -267,38 +253,21 @@ export async function saveMessages(messages, type) {
   });
 }
 
-export async function saveMessage(message, type) {
-  return saveMessages([message], type);
-}
-
-export async function getMessagesByRoom(roomId) {
-  const database = await getDB();
-  const tx = database.transaction("messages", "readonly");
-  const store = tx.objectStore("messages");
-  const index = store.index("chat_key");
-
-  return new Promise((resolve, reject) => {
-    const request = index.getAll(`room-${roomId}`);
-    request.onsuccess = () => {
-      const messages = request.result || [];
-      messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-      resolve(messages);
-    };
-    request.onerror = () => reject(request.error);
-  });
+export async function saveMessage(message) {
+  return saveMessages([message]);
 }
 
 export async function getMessagesByDM(userId1, userId2) {
   const database = await getDB();
   const tx = database.transaction("messages", "readonly");
   const store = tx.objectStore("messages");
-  const index = store.index("chat_key");
+  const index = store.index("dm_key");
 
   const ids = [userId1, userId2].sort((a, b) => a - b);
-  const chatKey = `direct-${ids[0]}-${ids[1]}`;
+  const dmKey = `dm-${ids[0]}-${ids[1]}`;
 
   return new Promise((resolve, reject) => {
-    const request = index.getAll(chatKey);
+    const request = index.getAll(dmKey);
     request.onsuccess = () => {
       const messages = request.result || [];
       messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -308,14 +277,8 @@ export async function getMessagesByDM(userId1, userId2) {
   });
 }
 
-export async function getLastMessageId(type, chatId, userId = null) {
-  let messages;
-  if (type === "room") {
-    messages = await getMessagesByRoom(chatId);
-  } else {
-    messages = await getMessagesByDM(chatId, userId);
-  }
-
+export async function getLastMessageId(chatId, userId) {
+  const messages = await getMessagesByDM(chatId, userId);
   if (messages.length === 0) return null;
   return messages[messages.length - 1].id;
 }
@@ -354,18 +317,12 @@ export async function getMetadata(key) {
 
 /**
  * Save the last visible message ID for scroll position restoration
- * @param {string} chatType - 'room' or 'direct'
- * @param {number|string} chatId - Room ID or User ID for DM
+ * @param {number|string} chatId - User ID for DM
  * @param {number|string} messageId - The message ID that was at the top of viewport
  * @param {number} userId - Current user ID (for DM key generation)
  */
-export async function saveScrollPosition(
-  chatType,
-  chatId,
-  messageId,
-  userId = null,
-) {
-  const key = getScrollPositionKey(chatType, chatId, userId);
+export async function saveScrollPosition(chatId, messageId, userId) {
+  const key = getScrollPositionKey(chatId, userId);
   await setMetadata(key, {
     messageId,
     savedAt: new Date().toISOString(),
@@ -374,24 +331,22 @@ export async function saveScrollPosition(
 
 /**
  * Get the saved scroll position for a chat
- * @param {string} chatType - 'room' or 'direct'
- * @param {number|string} chatId - Room ID or User ID for DM
+ * @param {number|string} chatId - User ID for DM
  * @param {number} userId - Current user ID (for DM key generation)
  * @returns {Promise<{messageId: number|string, savedAt: string}|null>}
  */
-export async function getScrollPosition(chatType, chatId, userId = null) {
-  const key = getScrollPositionKey(chatType, chatId, userId);
+export async function getScrollPosition(chatId, userId) {
+  const key = getScrollPositionKey(chatId, userId);
   return await getMetadata(key);
 }
 
 /**
  * Clear scroll position for a chat (e.g., when user scrolls to bottom)
- * @param {string} chatType - 'room' or 'direct'
- * @param {number|string} chatId - Room ID or User ID for DM
+ * @param {number|string} chatId - User ID for DM
  * @param {number} userId - Current user ID (for DM key generation)
  */
-export async function clearScrollPosition(chatType, chatId, userId = null) {
-  const key = getScrollPositionKey(chatType, chatId, userId);
+export async function clearScrollPosition(chatId, userId) {
+  const key = getScrollPositionKey(chatId, userId);
   const database = await getDB();
   const tx = database.transaction("metadata", "readwrite");
   const store = tx.objectStore("metadata");
@@ -406,14 +361,9 @@ export async function clearScrollPosition(chatType, chatId, userId = null) {
 /**
  * Generate a unique key for scroll position storage
  */
-function getScrollPositionKey(chatType, chatId, userId = null) {
-  if (chatType === "room") {
-    return `scroll_position_room_${chatId}`;
-  } else {
-    // For DMs, create consistent key regardless of who initiated
-    const ids = [chatId, userId].sort((a, b) => a - b);
-    return `scroll_position_dm_${ids[0]}_${ids[1]}`;
-  }
+function getScrollPositionKey(chatId, userId) {
+  const ids = [chatId, userId].sort((a, b) => a - b);
+  return `scroll_position_dm_${ids[0]}_${ids[1]}`;
 }
 
 // ==================== CLEAR DATA ====================
@@ -452,6 +402,37 @@ export async function clearUserData() {
   });
 }
 
+/**
+ * Clear messages for a specific chat (DM conversation)
+ * @param {number} chatId - The user ID of the DM partner
+ */
+export async function clearChatMessages(chatId) {
+  const database = await getDB();
+  const tx = database.transaction("messages", "readwrite");
+  const store = tx.objectStore("messages");
+  const index = store.index("dm_key");
+
+  // Get all possible dm_key combinations for this chatId
+  // We need to iterate through all messages and delete those matching the chatId
+  return new Promise((resolve, reject) => {
+    const request = store.openCursor();
+    request.onsuccess = (event) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        const message = cursor.value;
+        // Check if this message belongs to the chat (either as sender or receiver)
+        if (message.sender_id === chatId || message.receiver_id === chatId) {
+          cursor.delete();
+        }
+        cursor.continue();
+      } else {
+        resolve();
+      }
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
 // Export all functions
 export default {
   initDB,
@@ -464,7 +445,6 @@ export default {
   updateChat,
   saveMessages,
   saveMessage,
-  getMessagesByRoom,
   getMessagesByDM,
   getLastMessageId,
   setMetadata,
@@ -472,6 +452,7 @@ export default {
   saveScrollPosition,
   getScrollPosition,
   clearScrollPosition,
+  clearChatMessages,
   clearAllData,
   clearUserData,
 };

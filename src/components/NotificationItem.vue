@@ -57,8 +57,6 @@ const iconClass = computed(() => {
     direct_message: "pi pi-comment",
     message: "pi pi-comments",
     mention: "pi pi-at",
-    room_invite: "pi pi-users",
-    room_join: "pi pi-user-plus",
     system: "pi pi-info-circle",
   };
   return icons[props.notification.type] || "pi pi-info-circle";
@@ -69,8 +67,6 @@ const avatarClass = computed(() => {
     direct_message: "bg-blue-500 text-white",
     message: "bg-green-500 text-white",
     mention: "bg-yellow-500 text-white",
-    room_invite: "bg-purple-500 text-white",
-    room_join: "bg-indigo-500 text-white",
     system: "bg-gray-500 text-white",
   };
   return colors[props.notification.type] || "bg-gray-500 text-white";

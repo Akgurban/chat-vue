@@ -136,13 +136,6 @@ function handleNotificationClick(notification) {
           );
         }
         break;
-      case "message":
-      case "room_invite":
-      case "room_join":
-        if (data.room_id) {
-          chatStore.openRoom(data.room_id, data.room_name || "Room");
-        }
-        break;
     }
   } catch (e) {
     console.error("Failed to parse notification data:", e);
@@ -167,8 +160,4 @@ function openSettings() {
 function loadMore() {
   notificationStore.fetchNotifications({ limit: 50 });
 }
-
-onMounted(() => {
-  notificationStore.fetchUnreadCount();
-});
 </script>

@@ -20,44 +20,11 @@
             rounded
             :loading="chatsStore.loading"
           />
-          <Button
-            @click="showCreateRoom"
-            icon="pi pi-plus"
-            size="small"
-            severity="success"
-            rounded
-            v-tooltip.top="'Create Room'"
-          />
         </div>
       </div>
     </template>
 
     <template #content>
-      <!-- Filter Tabs -->
-      <div class="filter-tabs mb-3">
-        <SelectButton
-          v-model="chatsStore.currentFilter"
-          :options="filterOptions"
-          optionLabel="label"
-          optionValue="value"
-          :allowEmpty="false"
-          class="w-full"
-        >
-          <template #option="{ option }">
-            <div class="flex items-center gap-1">
-              <i :class="option.icon" class="text-xs"></i>
-              <span>{{ option.label }}</span>
-              <Badge
-                v-if="chatsStore.unreadByType[option.value] > 0"
-                :value="chatsStore.unreadByType[option.value]"
-                severity="danger"
-                class="ml-1"
-              />
-            </div>
-          </template>
-        </SelectButton>
-      </div>
-
       <!-- Search -->
       <div class="mb-3">
         <IconField>
@@ -91,7 +58,7 @@
         <TransitionGroup name="chat-list" tag="div" v-else>
           <div
             v-for="chat in filteredChats"
-            :key="`${chat.type}-${chat.id}`"
+            :key="chat.id"
             @click="openChat(chat)"
             :class="[
               'chat-item',
@@ -109,19 +76,11 @@
               />
               <!-- Online indicator for DMs -->
               <span
-                v-if="chat.type === 'direct'"
                 :class="[
                   'online-indicator',
                   chat.is_online ? 'online' : 'offline',
                 ]"
               ></span>
-              <!-- Room icon -->
-              <span v-else class="room-icon">
-                <i
-                  :class="chat.is_private ? 'pi pi-lock' : 'pi pi-globe'"
-                  class="text-xs"
-                ></i>
-              </span>
             </div>
 
             <!-- Content -->
@@ -144,9 +103,6 @@
                     class="sender"
                     v-if="chat.last_message.sender_id === authStore.user?.id"
                     >You:
-                  </span>
-                  <span class="sender" v-else-if="chat.type === 'room'"
-                    >{{ chat.last_message.sender_username }}:
                   </span>
                   <span class="message-preview">{{
                     chat.last_message.content
@@ -176,7 +132,6 @@ import Card from "primevue/card";
 import Button from "primevue/button";
 import Badge from "primevue/badge";
 import Avatar from "primevue/avatar";
-import SelectButton from "primevue/selectbutton";
 import InputText from "primevue/inputtext";
 import IconField from "primevue/iconfield";
 import InputIcon from "primevue/inputicon";
@@ -188,14 +143,8 @@ const chatsStore = useChatsStore();
 
 const searchQuery = ref("");
 
-const filterOptions = [
-  { label: "All", value: "all", icon: "pi pi-list" },
-  { label: "DMs", value: "direct", icon: "pi pi-user" },
-  { label: "Rooms", value: "room", icon: "pi pi-home" },
-];
-
 const filteredChats = computed(() => {
-  let result = chatsStore.filteredChats;
+  let result = chatsStore.chats;
 
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
@@ -210,26 +159,15 @@ const filteredChats = computed(() => {
 });
 
 function openChat(chat) {
-  if (chat.type === "direct") {
-    router.push(`/dm/${chat.id}`);
-  } else {
-    router.push(`/room/${chat.id}`);
-  }
+  router.push(`/dm/${chat.id}`);
 }
 
 function isActiveChat(chat) {
-  if (chat.type === "direct") {
-    return route.name === "dm" && route.params.userId == chat.id;
-  }
-  return route.name === "room" && route.params.roomId == chat.id;
-}
-
-function showCreateRoom() {
-  router.push("/create-room");
+  return route.name === "dm" && route.params.userId == chat.id;
 }
 
 function getTypingUser(chat) {
-  return chatsStore.getTypingUser(chat.type, chat.id);
+  return chatsStore.getTypingUser(chat.id);
 }
 
 function getAvatarColor(name) {
@@ -276,15 +214,6 @@ function formatTime(timestamp) {
 <style scoped>
 .chats-list-card {
   height: 100%;
-}
-
-.filter-tabs :deep(.p-selectbutton) {
-  display: flex;
-}
-
-.filter-tabs :deep(.p-selectbutton .p-togglebutton) {
-  flex: 1;
-  justify-content: center;
 }
 
 .chats-container {
@@ -342,16 +271,6 @@ function formatTime(timestamp) {
 
 .online-indicator.offline {
   background-color: #9ca3af;
-}
-
-.room-icon {
-  position: absolute;
-  bottom: -2px;
-  right: -2px;
-  background: white;
-  border-radius: 50%;
-  padding: 2px;
-  font-size: 10px;
 }
 
 /* Content */

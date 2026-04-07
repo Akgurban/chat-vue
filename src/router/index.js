@@ -3,10 +3,8 @@ import { useAuthStore } from "../stores/auth";
 
 // Lazy-loaded views
 const ChatView = () => import("../views/ChatView.vue");
-const RoomView = () => import("../views/RoomView.vue");
 const DMView = () => import("../views/DMView.vue");
 const LoginView = () => import("../views/LoginView.vue");
-const CreateRoomView = () => import("../views/CreateRoomView.vue");
 
 const routes = [
   {
@@ -25,21 +23,10 @@ const routes = [
         component: () => import("../components/DefaultView.vue"),
       },
       {
-        path: "room/:roomId",
-        name: "room",
-        component: RoomView,
-        props: true,
-      },
-      {
         path: "dm/:userId",
         name: "dm",
         component: DMView,
         props: true,
-      },
-      {
-        path: "create-room",
-        name: "create-room",
-        component: CreateRoomView,
       },
     ],
   },

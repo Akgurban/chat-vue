@@ -85,6 +85,9 @@
           <p>No messages yet</p>
           <span>Start the conversation!</span>
         </div>
+
+        <!-- Bottom sentinel for Intersection Observer to detect scroll to bottom -->
+        <div ref="bottomSentinel" class="bottom-sentinel"></div>
       </div>
     </ScrollPanel>
 
@@ -96,7 +99,7 @@
         icon="pi pi-chevron-down"
         rounded
         class="scroll-to-bottom-btn"
-        :badge="newMessagesCount > 0 ? String(newMessagesCount) : null"
+        :badge="displayUnreadCount > 0 ? String(displayUnreadCount) : null"
         badgeClass="p-badge-danger"
       />
     </transition>
@@ -155,28 +158,38 @@ const props = defineProps({
     type: [Number, String],
     default: null,
   },
-  // New props for scroll position persistence
-  chatType: {
-    type: String,
-    default: null, // 'room' or 'direct'
-  },
+  // Prop for scroll position persistence
   chatId: {
     type: [Number, String],
-    default: null, // Room ID or DM User ID
+    default: null, // DM User ID
   },
 });
+
+const emit = defineEmits(["messageRead", "markAllRead"]);
 
 const authStore = useAuthStore();
 const messagesContainer = ref(null);
 const scrollPanelRef = ref(null);
+const bottomSentinel = ref(null);
 const showScrollButton = ref(true);
 const isAtBottom = ref(false);
 const newMessagesCount = ref(0);
 const lastMessageCount = ref(0);
 const savedScrollMessageId = ref(null);
+const localUnreadCount = ref(0);
+
+// Track read messages with Intersection Observer
+const readMessageIds = ref(new Set());
+const messageObserver = ref(null);
+const bottomObserver = ref(null);
 
 const themeClass = computed(() => `theme-${props.theme}`);
 
+// Display unread count - use local count that decreases as messages are read
+const displayUnreadCount = computed(() => {
+  // Show new messages count if higher, otherwise show remaining unread
+  return Math.max(newMessagesCount.value, localUnreadCount.value);
+});
 function isMine(msg) {
   return msg.sender_id === authStore.user?.id;
 }
@@ -237,15 +250,17 @@ function scrollToBottom(smooth = true) {
         isAtBottom.value = true;
         showScrollButton.value = false;
         newMessagesCount.value = 0;
+        localUnreadCount.value = 0;
+
+        // Emit mark all as read when scrolling to bottom
+        if (props.unreadCount > 0) {
+          emit("markAllRead");
+        }
 
         // Clear saved scroll position since user is at bottom
-        if (props.chatType && props.chatId) {
-          db.clearScrollPosition(
-            props.chatType,
-            props.chatId,
-            authStore.user?.id,
-          ).catch((err) =>
-            console.error("Failed to clear scroll position:", err),
+        if (props.chatId) {
+          db.clearScrollPosition(props.chatId, authStore.user?.id).catch(
+            (err) => console.error("Failed to clear scroll position:", err),
           );
         }
       }
@@ -274,28 +289,6 @@ function scrollToFirstUnread() {
   });
 }
 
-function scrollToNewMessagesDivider() {
-  nextTick(() => {
-    if (scrollPanelRef.value && props.firstNewMessageId) {
-      const scrollContent =
-        scrollPanelRef.value.$el?.querySelector(".p-scrollpanel-content") ||
-        scrollPanelRef.value.$el?.querySelector(
-          ".p-scrollpanel-content-container",
-        );
-      const dividerElement = scrollContent?.querySelector(
-        "[data-new-messages-divider]",
-      );
-      if (dividerElement) {
-        dividerElement.scrollIntoView({ behavior: "instant", block: "start" });
-        showScrollButton.value = true;
-        isAtBottom.value = false;
-        return true;
-      }
-    }
-    return false;
-  });
-}
-
 function handleScroll(event) {
   nextTick(() => {
     if (scrollPanelRef.value) {
@@ -315,6 +308,11 @@ function handleScroll(event) {
 
         // Clear new messages count when user scrolls to bottom
         if (isAtBottom.value) {
+          console.log(
+            isAtBottom.value,
+            "User is at bottom, clearing new messages count",
+          );
+
           newMessagesCount.value = 0;
         }
       }
@@ -387,12 +385,11 @@ function scrollToMessage(messageId, behavior = "instant") {
  * Save current scroll position to IndexedDB
  */
 async function saveCurrentScrollPosition() {
-  if (!props.chatType || !props.chatId) return;
+  if (!props.chatId) return;
   const visibleMessageId = getVisibleTopMessageId();
   if (!visibleMessageId) return;
   try {
     await db.saveScrollPosition(
-      props.chatType,
       props.chatId,
       visibleMessageId,
       authStore.user?.id,
@@ -403,14 +400,34 @@ async function saveCurrentScrollPosition() {
 }
 
 /**
- * Load saved scroll position from IndexedDB
+ * Load saved scroll position from IndexedDB or localStorage (fallback for browser refresh)
  */
 async function loadSavedScrollPosition() {
-  if (!props.chatType || !props.chatId) return null;
+  if (!props.chatId) return null;
 
   try {
+    // First check localStorage (used during browser refresh)
+    const localStorageKey = `scroll_position_dm_${props.chatId}_${authStore.user?.id}`;
+    const localData = localStorage.getItem(localStorageKey);
+
+    if (localData) {
+      const parsed = JSON.parse(localData);
+      // Remove from localStorage after reading (one-time use)
+      localStorage.removeItem(localStorageKey);
+
+      // Also save to IndexedDB for consistency
+      if (parsed.messageId) {
+        await db.saveScrollPosition(
+          props.chatId,
+          parsed.messageId,
+          authStore.user?.id,
+        );
+        return parsed.messageId;
+      }
+    }
+
+    // Fallback to IndexedDB
     const scrollData = await db.getScrollPosition(
-      props.chatType,
       props.chatId,
       authStore.user?.id,
     );
@@ -418,6 +435,136 @@ async function loadSavedScrollPosition() {
   } catch (err) {
     console.error("Failed to load scroll position:", err);
     return null;
+  }
+}
+
+/**
+ * Setup Intersection Observer to track which messages become visible
+ * This is used to track read messages as user scrolls
+ */
+function setupMessageObserver() {
+  if (messageObserver.value) {
+    messageObserver.value.disconnect();
+  }
+
+  const scrollContent =
+    scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
+    scrollPanelRef.value?.$el?.querySelector(
+      ".p-scrollpanel-content-container",
+    );
+
+  if (!scrollContent) return;
+
+  messageObserver.value = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const messageId = entry.target.getAttribute("data-message-id");
+          if (messageId && !readMessageIds.value.has(messageId)) {
+            // Find the message to check if it's not our own message
+            const msg = props.messages.find(
+              (m) => String(m.id) === String(messageId),
+            );
+            if (msg && !isMine(msg)) {
+              readMessageIds.value.add(messageId);
+              emit("messageRead", messageId);
+
+              // Decrease local unread count
+              if (localUnreadCount.value > 0) {
+                localUnreadCount.value--;
+              }
+            }
+          }
+        }
+      });
+    },
+    {
+      root: scrollContent,
+      threshold: 0.5, // Message is considered "read" when 50% visible
+      rootMargin: "0px",
+    },
+  );
+
+  // Observe all unread messages (messages from others)
+  const messageElements = scrollContent.querySelectorAll("[data-message-id]");
+  messageElements.forEach((el) => {
+    const messageId = el.getAttribute("data-message-id");
+    const msg = props.messages.find((m) => String(m.id) === String(messageId));
+    // Only observe messages from others that haven't been read yet
+    if (msg && !isMine(msg) && !readMessageIds.value.has(messageId)) {
+      messageObserver.value.observe(el);
+    }
+  });
+}
+
+/**
+ * Cleanup the Intersection Observer
+ */
+function cleanupMessageObserver() {
+  if (messageObserver.value) {
+    messageObserver.value.disconnect();
+    messageObserver.value = null;
+  }
+}
+
+/**
+ * Setup Intersection Observer for the bottom sentinel
+ * This reliably detects when user scrolls to bottom
+ */
+function setupBottomObserver() {
+  if (bottomObserver.value) {
+    bottomObserver.value.disconnect();
+  }
+
+  const scrollContent =
+    scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
+    scrollPanelRef.value?.$el?.querySelector(
+      ".p-scrollpanel-content-container",
+    );
+
+  if (!scrollContent || !bottomSentinel.value) return;
+
+  bottomObserver.value = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        const wasAtBottom = isAtBottom.value;
+        isAtBottom.value = entry.isIntersecting;
+
+        // When user scrolls to bottom
+        if (entry.isIntersecting) {
+          showScrollButton.value = false;
+          newMessagesCount.value = 0;
+          localUnreadCount.value = 0;
+
+          // If user just arrived at bottom (wasn't there before), mark all as read
+          if (!wasAtBottom && props.unreadCount > 0) {
+            emit("markAllRead");
+          }
+        } else {
+          // Check if there's scrollable content
+          const { scrollHeight, clientHeight } = scrollContent;
+          const hasScrollableContent = scrollHeight > clientHeight;
+          showScrollButton.value = hasScrollableContent;
+        }
+      });
+    },
+    {
+      root: scrollContent,
+      threshold: 0.1, // Trigger when even 10% of sentinel is visible
+      rootMargin: "0px",
+    },
+  );
+
+  bottomObserver.value.observe(bottomSentinel.value);
+}
+
+/**
+ * Cleanup the bottom observer
+ */
+function cleanupBottomObserver() {
+  if (bottomObserver.value) {
+    bottomObserver.value.disconnect();
+    bottomObserver.value = null;
   }
 }
 
@@ -431,13 +578,15 @@ onMounted(async () => {
       // Priority 0: Check for saved scroll position from IndexedDB
       const savedMessageId = await loadSavedScrollPosition();
       if (savedMessageId) {
+        console.log(
+          savedMessageId,
+          "restoring scroll position to saved message ID",
+        );
+
         savedScrollMessageId.value = savedMessageId;
         scrollToMessage(savedMessageId, "instant");
-        return;
-      }
-
-      // Priority 1: If there's a "new messages" divider, scroll to it
-      if (props.firstNewMessageId) {
+      } else if (props.firstNewMessageId) {
+        // Priority 1: If there's a "new messages" divider, scroll to it
         const scrollContent =
           scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
           scrollPanelRef.value?.$el?.querySelector(
@@ -446,6 +595,7 @@ onMounted(async () => {
         const dividerElement = scrollContent?.querySelector(
           "[data-new-messages-divider]",
         );
+
         if (dividerElement) {
           dividerElement.scrollIntoView({
             behavior: "instant",
@@ -453,19 +603,14 @@ onMounted(async () => {
           });
           showScrollButton.value = true;
           isAtBottom.value = false;
-          return;
         }
       }
 
-      // Priority 2: If there are unread messages, scroll to first unread
-      if (props.unreadCount > 0 && props.firstUnreadId) {
-        scrollToFirstUnread();
-        showScrollButton.value = true;
-        isAtBottom.value = false;
-      } else {
-        // No unread messages - instant scroll to bottom (no animation)
-        scrollToBottom(false);
-      }
+      // Always setup Intersection Observer for tracking read messages
+      setupMessageObserver();
+
+      // Setup bottom observer for reliable "at bottom" detection
+      setupBottomObserver();
     }, 150);
   });
 });
@@ -473,24 +618,53 @@ onMounted(async () => {
 // Save scroll position before unmounting (leaving chat)
 onBeforeUnmount(() => {
   saveCurrentScrollPosition();
+  cleanupMessageObserver();
+  cleanupBottomObserver();
+  // Remove beforeunload listener
+  window.removeEventListener("beforeunload", handleBeforeUnload);
 });
 
-// Track previous chatId/chatType to save scroll position when switching chats
-const previousChatId = ref(null);
-const previousChatType = ref(null);
+// Handle browser refresh/close - save scroll position synchronously
+function handleBeforeUnload() {
+  if (!props.chatId || isAtBottom.value) return;
 
-// Watch for chat changes (when switching between DMs or rooms without unmounting)
+  const visibleMessageId = getVisibleTopMessageId();
+  if (!visibleMessageId) return;
+
+  // Use synchronous localStorage as fallback for beforeunload
+  // IndexedDB is async and may not complete before page unloads
+  try {
+    const ids = [props.chatId, authStore.user?.id].sort((a, b) => a - b);
+    const key = `scroll_position_dm_${ids[0]}_${ids[1]}`;
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        messageId: visibleMessageId,
+        timestamp: Date.now(),
+      }),
+    );
+  } catch (err) {
+    console.error("Failed to save scroll position on beforeunload:", err);
+  }
+}
+
+// Add beforeunload listener when mounted
+window.addEventListener("beforeunload", handleBeforeUnload);
+
+// Track previous chatId to save scroll position when switching chats
+const previousChatId = ref(null);
+
+// Watch for chat changes (when switching between DMs without unmounting)
 watch(
-  () => [props.chatType, props.chatId],
-  async ([newType, newId], [oldType, oldId]) => {
+  () => props.chatId,
+  async (newId, oldId) => {
     // Save scroll position for the previous chat before switching
-    if (oldType && oldId && (oldType !== newType || oldId !== newId)) {
+    if (oldId && oldId !== newId) {
       // Save for the OLD chat
       const visibleMessageId = getVisibleTopMessageId();
       if (visibleMessageId && !isAtBottom.value) {
         try {
           await db.saveScrollPosition(
-            oldType,
             oldId,
             visibleMessageId,
             authStore.user?.id,
@@ -504,24 +678,28 @@ watch(
       } else if (isAtBottom.value) {
         // Clear scroll position if user was at bottom
         try {
-          await db.clearScrollPosition(oldType, oldId, authStore.user?.id);
+          await db.clearScrollPosition(oldId, authStore.user?.id);
         } catch (err) {
           console.error("Failed to clear scroll position:", err);
         }
       }
     }
 
-    // Update previous values
+    // Update previous value
     previousChatId.value = newId;
-    previousChatType.value = newType;
 
     // Reset state for new chat
     isAtBottom.value = false;
     showScrollButton.value = true;
     newMessagesCount.value = 0;
 
+    // Reset read message tracking and cleanup old observers
+    readMessageIds.value = new Set();
+    cleanupMessageObserver();
+    cleanupBottomObserver();
+
     // Load scroll position for the new chat after messages are rendered
-    if (newType && newId) {
+    if (newId) {
       nextTick(async () => {
         setTimeout(async () => {
           // Priority 0: Check for saved scroll position from IndexedDB
@@ -529,11 +707,8 @@ watch(
           if (savedMessageId) {
             savedScrollMessageId.value = savedMessageId;
             scrollToMessage(savedMessageId, "instant");
-            return;
-          }
-
-          // Priority 1: If there's a "new messages" divider, scroll to it
-          if (props.firstNewMessageId) {
+          } else if (props.firstNewMessageId) {
+            // Priority 1: If there's a "new messages" divider, scroll to it
             const scrollContent =
               scrollPanelRef.value?.$el?.querySelector(
                 ".p-scrollpanel-content",
@@ -551,12 +726,9 @@ watch(
               });
               showScrollButton.value = true;
               isAtBottom.value = false;
-              return;
             }
-          }
-
-          // Priority 2: If there are unread messages, scroll to first unread
-          if (props.unreadCount > 0 && props.firstUnreadId) {
+          } else if (props.unreadCount > 0 && props.firstUnreadId) {
+            // Priority 2: If there are unread messages, scroll to first unread
             scrollToFirstUnread();
             showScrollButton.value = true;
             isAtBottom.value = false;
@@ -564,6 +736,12 @@ watch(
             // No unread messages - instant scroll to bottom (no animation)
             scrollToBottom(false);
           }
+
+          // Always setup Intersection Observer for new chat
+          setupMessageObserver();
+
+          // Setup bottom observer for reliable "at bottom" detection
+          setupBottomObserver();
         }, 150);
       });
     }
@@ -613,6 +791,19 @@ watch(
       checkScrollState();
     }, 100);
   },
+);
+
+// Sync local unread count with props
+watch(
+  () => props.unreadCount,
+  (newCount) => {
+    // Only update if the new count is higher (new unread messages arrived)
+    // or if it's a reset (0)
+    if (newCount > localUnreadCount.value || newCount === 0) {
+      localUnreadCount.value = newCount;
+    }
+  },
+  { immediate: true },
 );
 
 // Expose scrollToBottom so parent components can call it
@@ -915,5 +1106,12 @@ defineExpose({
 
 .theme-bubble .message-content {
   @apply rounded-3xl;
+}
+
+/* Bottom sentinel - invisible element at bottom of messages */
+.bottom-sentinel {
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
 }
 </style>

@@ -11,26 +11,12 @@ export const useChatsStore = defineStore("chats", () => {
   const chats = ref([]);
   const totalUnread = ref(0);
   const loading = ref(false);
-  const currentFilter = ref("all"); // 'all', 'direct', 'room'
   const typingUsers = ref({}); // { chatKey: username }
   const isInitialized = ref(false);
 
-  // Filtered chats based on current filter
-  const filteredChats = computed(() => {
-    if (currentFilter.value === "all") {
-      return chats.value;
-    }
-    return chats.value.filter((chat) => chat.type === currentFilter.value);
-  });
-
-  // Unread counts by type
-  const unreadByType = computed(() => {
-    const counts = { all: 0, direct: 0, room: 0 };
-    chats.value.forEach((chat) => {
-      counts.all += chat.unread_count || 0;
-      counts[chat.type] += chat.unread_count || 0;
-    });
-    return counts;
+  // Unread count
+  const unreadCount = computed(() => {
+    return chats.value.reduce((sum, chat) => sum + (chat.unread_count || 0), 0);
   });
 
   // Initialize from IndexedDB
@@ -80,10 +66,10 @@ export const useChatsStore = defineStore("chats", () => {
   }
 
   // Fetch single chat with messages
-  async function fetchChat(type, id, messageLimit = 50) {
+  async function fetchChat(id, messageLimit = 50) {
     try {
       const data = await authStore.api(
-        `/api/chats/${type}/${id}?message_limit=${messageLimit}`,
+        `/api/chats/direct/${id}?message_limit=${messageLimit}`,
       );
       return data;
     } catch (err) {
@@ -92,34 +78,11 @@ export const useChatsStore = defineStore("chats", () => {
     }
   }
 
-  // Mark room messages as read
-  async function markRoomAsRead(roomId) {
-    try {
-      await authStore.api(`/api/rooms/${roomId}/messages/read`, {
-        method: "POST",
-      });
-      // Update local state
-      const chat = chats.value.find(
-        (c) => c.type === "room" && c.id === roomId,
-      );
-      if (chat) {
-        totalUnread.value -= chat.unread_count;
-        chat.unread_count = 0;
-        // Update IndexedDB
-        await db.updateChat(chat);
-      }
-    } catch (err) {
-      console.error("Failed to mark room as read:", err);
-    }
-  }
-
   // Mark DM as read (via WebSocket)
   async function markDmAsRead(userId) {
     wsStore.send("mark_read", { user_id: userId });
     // Update local state
-    const chat = chats.value.find(
-      (c) => c.type === "direct" && c.id === userId,
-    );
+    const chat = chats.value.find((c) => c.id === userId);
     if (chat) {
       totalUnread.value -= chat.unread_count;
       chat.unread_count = 0;
@@ -128,22 +91,26 @@ export const useChatsStore = defineStore("chats", () => {
     }
   }
 
-  // Update chat from WebSocket message
-  function handleNewMessage(payload, type) {
-    // For DMs, use the other user's ID (not the current user's)
-    let chatId;
-    if (type === "room") {
-      chatId = payload.room_id;
-    } else {
-      // For DMs: if I sent it, use receiver_id; if I received it, use sender_id
-      chatId =
-        payload.sender_id === authStore.user?.id
-          ? payload.receiver_id
-          : payload.sender_id;
+  // Decrease unread count by 1 (for individual message read tracking)
+  async function decreaseUnreadCount(id) {
+    const chat = chats.value.find((c) => c.id === id);
+    if (chat && chat.unread_count > 0) {
+      chat.unread_count--;
+      totalUnread.value = Math.max(0, totalUnread.value - 1);
+      // Update IndexedDB
+      await db.updateChat(chat);
     }
-    const chatType = type === "room" ? "room" : "direct";
+  }
 
-    let chat = chats.value.find((c) => c.type === chatType && c.id === chatId);
+  // Update chat from WebSocket message
+  function handleNewMessage(payload) {
+    // For DMs: if I sent it, use receiver_id; if I received it, use sender_id
+    const chatId =
+      payload.sender_id === authStore.user?.id
+        ? payload.receiver_id
+        : payload.sender_id;
+
+    let chat = chats.value.find((c) => c.id === chatId);
 
     if (chat) {
       // Update existing chat
@@ -171,20 +138,13 @@ export const useChatsStore = defineStore("chats", () => {
       }
     } else {
       // Create new chat entry
-      // For DMs: use the other user's name
-      let chatName;
-      if (chatType === "direct") {
-        chatName =
-          payload.sender_id === authStore.user?.id
-            ? payload.receiver_username || "Unknown"
-            : payload.sender_username || "Unknown";
-      } else {
-        chatName = payload.room_name || "Unknown";
-      }
+      const chatName =
+        payload.sender_id === authStore.user?.id
+          ? payload.receiver_username || "Unknown"
+          : payload.sender_username || "Unknown";
 
       const newChat = {
         id: chatId,
-        type: chatType,
         name: chatName,
         unread_count: payload.sender_id !== authStore.user?.id ? 1 : 0,
         last_message: {
@@ -196,7 +156,7 @@ export const useChatsStore = defineStore("chats", () => {
           created_at: payload.created_at,
         },
         last_message_at: payload.created_at,
-        is_online: chatType === "direct" ? true : undefined,
+        is_online: true,
       };
       chats.value.unshift(newChat);
       if (payload.sender_id !== authStore.user?.id) {
@@ -214,8 +174,8 @@ export const useChatsStore = defineStore("chats", () => {
   }
 
   // Handle typing indicator
-  function setTypingUser(chatType, chatId, username) {
-    const key = `${chatType}-${chatId}`;
+  function setTypingUser(chatId, username) {
+    const key = `dm-${chatId}`;
     typingUsers.value[key] = username;
 
     // Clear after 3 seconds
@@ -227,23 +187,43 @@ export const useChatsStore = defineStore("chats", () => {
   }
 
   // Get typing user for a chat
-  function getTypingUser(chatType, chatId) {
-    return typingUsers.value[`${chatType}-${chatId}`] || null;
+  function getTypingUser(chatId) {
+    return typingUsers.value[`dm-${chatId}`] || null;
   }
 
   // Update online status
   function updateOnlineStatus(userId, isOnline) {
-    const chat = chats.value.find(
-      (c) => c.type === "direct" && c.id === userId,
-    );
+    const chat = chats.value.find((c) => c.id === userId);
     if (chat) {
       chat.is_online = isOnline;
     }
   }
 
-  // Set filter
-  function setFilter(filter) {
-    currentFilter.value = filter;
+  // Clear chat messages
+  async function clearChat(userId) {
+    try {
+      await authStore.api(`/api/dm/clear/${userId}`, {
+        method: "DELETE",
+      });
+
+      // Update local state - remove chat or clear its messages
+      const chat = chats.value.find((c) => c.id === userId);
+      if (chat) {
+        chat.last_message = null;
+        chat.last_message_at = null;
+        chat.unread_count = 0;
+        // Update IndexedDB
+        await db.updateChat(chat);
+      }
+
+      // Clear messages from IndexedDB for this chat
+      await db.clearChatMessages(userId);
+
+      return true;
+    } catch (err) {
+      console.error("Failed to clear chat:", err);
+      return false;
+    }
   }
 
   // Reset store
@@ -251,7 +231,6 @@ export const useChatsStore = defineStore("chats", () => {
     chats.value = [];
     totalUnread.value = 0;
     loading.value = false;
-    currentFilter.value = "all";
     typingUsers.value = {};
     isInitialized.value = false;
     // Clear IndexedDB data
@@ -266,20 +245,18 @@ export const useChatsStore = defineStore("chats", () => {
     chats,
     totalUnread,
     loading,
-    currentFilter,
-    filteredChats,
-    unreadByType,
+    unreadCount,
     isInitialized,
     initFromCache,
     fetchChats,
     fetchChat,
-    markRoomAsRead,
     markDmAsRead,
+    decreaseUnreadCount,
     handleNewMessage,
     setTypingUser,
     getTypingUser,
     updateOnlineStatus,
-    setFilter,
+    clearChat,
     reset,
   };
 });

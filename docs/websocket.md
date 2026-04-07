@@ -609,10 +609,6 @@ class ChatClient {
     }
   }
 
-  joinRoom(roomId) {
-    this.send("join_room", { room_id: roomId });
-  }
-
   leaveRoom(roomId) {
     this.send("leave_room", { room_id: roomId });
   }
@@ -639,9 +635,7 @@ class ChatClient {
 // Usage
 const chat = new ChatClient("your-jwt-token");
 
-chat.on("connected", () => {
-  chat.joinRoom(1);
-});
+chat.on("connected", () => {});
 
 chat.on("new_message", (message) => {
   console.log(`${message.sender_username}: ${message.content}`);
