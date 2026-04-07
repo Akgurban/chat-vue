@@ -177,6 +177,7 @@ const newMessagesCount = ref(0);
 const lastMessageCount = ref(0);
 const savedScrollMessageId = ref(null);
 const localUnreadCount = ref(0);
+const initialScrollDone = ref(false); // Track if initial scroll position has been set
 
 // Track read messages with Intersection Observer
 const readMessageIds = ref(new Set());
@@ -407,7 +408,9 @@ async function loadSavedScrollPosition() {
 
   try {
     // First check localStorage (used during browser refresh)
-    const localStorageKey = `scroll_position_dm_${props.chatId}_${authStore.user?.id}`;
+    // Key format must match handleBeforeUnload: sort IDs for consistency
+    const ids = [props.chatId, authStore.user?.id].sort((a, b) => a - b);
+    const localStorageKey = `scroll_position_dm_${ids[0]}_${ids[1]}`;
     const localData = localStorage.getItem(localStorageKey);
 
     if (localData) {
@@ -572,47 +575,58 @@ function cleanupBottomObserver() {
 onMounted(async () => {
   lastMessageCount.value = props.messages.length;
 
-  // Check after content renders
-  nextTick(async () => {
-    setTimeout(async () => {
-      // Priority 0: Check for saved scroll position from IndexedDB
-      const savedMessageId = await loadSavedScrollPosition();
-      if (savedMessageId) {
-        console.log(
-          savedMessageId,
-          "restoring scroll position to saved message ID",
-        );
-
-        savedScrollMessageId.value = savedMessageId;
-        scrollToMessage(savedMessageId, "instant");
-      } else if (props.firstNewMessageId) {
-        // Priority 1: If there's a "new messages" divider, scroll to it
-        const scrollContent =
-          scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
-          scrollPanelRef.value?.$el?.querySelector(
-            ".p-scrollpanel-content-container",
+  // If messages already exist on mount, handle initial scroll
+  if (props.messages.length > 0) {
+    initialScrollDone.value = true;
+    
+    // Check after content renders
+    nextTick(async () => {
+      setTimeout(async () => {
+        // Priority 0: Check for saved scroll position from IndexedDB
+        const savedMessageId = await loadSavedScrollPosition();
+        if (savedMessageId) {
+          console.log(
+            savedMessageId,
+            "restoring scroll position to saved message ID",
           );
-        const dividerElement = scrollContent?.querySelector(
-          "[data-new-messages-divider]",
-        );
 
-        if (dividerElement) {
-          dividerElement.scrollIntoView({
-            behavior: "instant",
-            block: "start",
-          });
-          showScrollButton.value = true;
-          isAtBottom.value = false;
+          savedScrollMessageId.value = savedMessageId;
+          scrollToMessage(savedMessageId, "instant");
+        } else if (props.firstNewMessageId) {
+          // Priority 1: If there's a "new messages" divider, scroll to it
+          const scrollContent =
+            scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
+            scrollPanelRef.value?.$el?.querySelector(
+              ".p-scrollpanel-content-container",
+            );
+          const dividerElement = scrollContent?.querySelector(
+            "[data-new-messages-divider]",
+          );
+
+          if (dividerElement) {
+            dividerElement.scrollIntoView({
+              behavior: "instant",
+              block: "start",
+            });
+            showScrollButton.value = true;
+            isAtBottom.value = false;
+          } else {
+            scrollToBottom(false);
+          }
+        } else {
+          // No saved position and no new messages divider - scroll to bottom
+          scrollToBottom(false);
         }
-      }
 
-      // Always setup Intersection Observer for tracking read messages
-      setupMessageObserver();
+        // Always setup Intersection Observer for tracking read messages
+        setupMessageObserver();
 
-      // Setup bottom observer for reliable "at bottom" detection
-      setupBottomObserver();
-    }, 150);
-  });
+        // Setup bottom observer for reliable "at bottom" detection
+        setupBottomObserver();
+      }, 150);
+    });
+  }
+  // If no messages yet, the watcher will handle scroll when messages load
 });
 
 // Save scroll position before unmounting (leaving chat)
@@ -692,59 +706,14 @@ watch(
     isAtBottom.value = false;
     showScrollButton.value = true;
     newMessagesCount.value = 0;
+    initialScrollDone.value = false; // Reset for new chat
 
     // Reset read message tracking and cleanup old observers
     readMessageIds.value = new Set();
     cleanupMessageObserver();
     cleanupBottomObserver();
 
-    // Load scroll position for the new chat after messages are rendered
-    if (newId) {
-      nextTick(async () => {
-        setTimeout(async () => {
-          // Priority 0: Check for saved scroll position from IndexedDB
-          const savedMessageId = await loadSavedScrollPosition();
-          if (savedMessageId) {
-            savedScrollMessageId.value = savedMessageId;
-            scrollToMessage(savedMessageId, "instant");
-          } else if (props.firstNewMessageId) {
-            // Priority 1: If there's a "new messages" divider, scroll to it
-            const scrollContent =
-              scrollPanelRef.value?.$el?.querySelector(
-                ".p-scrollpanel-content",
-              ) ||
-              scrollPanelRef.value?.$el?.querySelector(
-                ".p-scrollpanel-content-container",
-              );
-            const dividerElement = scrollContent?.querySelector(
-              "[data-new-messages-divider]",
-            );
-            if (dividerElement) {
-              dividerElement.scrollIntoView({
-                behavior: "instant",
-                block: "start",
-              });
-              showScrollButton.value = true;
-              isAtBottom.value = false;
-            }
-          } else if (props.unreadCount > 0 && props.firstUnreadId) {
-            // Priority 2: If there are unread messages, scroll to first unread
-            scrollToFirstUnread();
-            showScrollButton.value = true;
-            isAtBottom.value = false;
-          } else {
-            // No unread messages - instant scroll to bottom (no animation)
-            scrollToBottom(false);
-          }
-
-          // Always setup Intersection Observer for new chat
-          setupMessageObserver();
-
-          // Setup bottom observer for reliable "at bottom" detection
-          setupBottomObserver();
-        }, 150);
-      });
-    }
+    // The messages watcher will handle scrolling when messages load for the new chat
   },
   { immediate: false },
 );
@@ -772,8 +741,46 @@ function checkScrollState() {
 // When new messages arrive
 watch(
   () => props.messages.length,
-  (newLength, oldLength) => {
-    if (newLength > oldLength) {
+  async (newLength, oldLength) => {
+    // Handle initial messages load (when messages go from 0 to some value)
+    if (oldLength === 0 && newLength > 0 && !initialScrollDone.value) {
+      initialScrollDone.value = true;
+      
+      // Wait for DOM to update
+      await nextTick();
+      setTimeout(async () => {
+        // Priority 0: Check for saved scroll position
+        const savedMessageId = await loadSavedScrollPosition();
+        if (savedMessageId) {
+          savedScrollMessageId.value = savedMessageId;
+          scrollToMessage(savedMessageId, "instant");
+        } else if (props.firstNewMessageId) {
+          // Priority 1: Scroll to new messages divider
+          const scrollContent =
+            scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content") ||
+            scrollPanelRef.value?.$el?.querySelector(".p-scrollpanel-content-container");
+          const dividerElement = scrollContent?.querySelector("[data-new-messages-divider]");
+          if (dividerElement) {
+            dividerElement.scrollIntoView({ behavior: "instant", block: "start" });
+            showScrollButton.value = true;
+            isAtBottom.value = false;
+          } else {
+            scrollToBottom(false);
+          }
+        } else {
+          // No saved position - scroll to bottom
+          scrollToBottom(false);
+        }
+        
+        // Setup observers after initial scroll
+        setupMessageObserver();
+        setupBottomObserver();
+      }, 50);
+      return;
+    }
+    
+    // Handle subsequent new messages (not initial load)
+    if (newLength > oldLength && initialScrollDone.value) {
       // New message arrived
       if (isAtBottom.value) {
         // If user was at bottom, scroll to new message
