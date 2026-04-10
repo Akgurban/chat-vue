@@ -211,12 +211,6 @@ function handleSend() {
   if (message.value.trim()) {
     chatStore.sendDM(message.value.trim());
     message.value = "";
-    // Scroll to bottom after sending message
-    nextTick(() => {
-      setTimeout(() => {
-        messageListRef.value?.scrollToBottom(false);
-      }, 50);
-    });
   }
 }
 
@@ -225,8 +219,9 @@ function handleSend() {
  * Called when user scrolls to the top
  */
 async function handleLoadMore() {
-  page.value++;
+  console.log("xasxsa");
 
+  page.value++;
   await chatStore.loadMoreMessages(25);
 }
 
