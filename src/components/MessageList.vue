@@ -78,7 +78,27 @@
 
                   <!-- Message Status (for own messages) -->
                   <div v-if="isMine(msg)" class="message-status">
-                    <i class="pi pi-check text-xs"></i>
+                    <!-- Single tick: message delivered -->
+                    <span
+                      v-if="msg.delivered_at && !msg.is_read"
+                      class="single-tick"
+                      title="Delivered"
+                    >
+                      <i class="pi pi-check"></i>
+                    </span>
+                    <!-- Double tick: message read -->
+                    <span
+                      v-else-if="msg.is_read"
+                      class="double-tick"
+                      title="Read"
+                    >
+                      <i class="pi pi-check"></i>
+                      <i class="pi pi-check"></i>
+                    </span>
+                    <!-- Pending: message not yet delivered -->
+                    <span v-else class="pending-tick" title="Sending...">
+                      <i class="pi pi-ellipsis-h"></i>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1084,6 +1104,38 @@ defineExpose({
 /* Message Status */
 .message-status {
   @apply flex justify-end mt-1 opacity-70;
+}
+
+/* Single tick - message delivered */
+.single-tick {
+  @apply text-xs text-blue-300;
+}
+
+.single-tick i {
+  @apply text-xs;
+}
+
+/* Double tick - message read */
+.double-tick {
+  @apply text-xs text-blue-100 flex;
+}
+
+.double-tick i {
+  @apply text-xs;
+  margin-left: -4px;
+}
+
+.double-tick i:last-child {
+  @apply font-bold;
+}
+
+/* Pending tick - message not yet delivered */
+.pending-tick {
+  @apply text-xs text-gray-400;
+}
+
+.pending-tick i {
+  @apply text-xs;
 }
 
 /* Empty State */

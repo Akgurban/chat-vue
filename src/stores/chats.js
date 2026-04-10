@@ -51,6 +51,7 @@ export const useChatsStore = defineStore("chats", () => {
       const query = params.toString() ? `?${params.toString()}` : "";
       const data = await authStore.api(`/api/chats${query}`);
       chats.value = data.chats || [];
+
       totalUnread.value = data.total_unread || 0;
 
       // Save to IndexedDB
@@ -105,7 +106,7 @@ export const useChatsStore = defineStore("chats", () => {
 
   // Mark DM as read (via WebSocket)
   async function markDmAsRead(userId) {
-    wsStore.send("mark_read", { user_id: userId });
+    wsStore.send("mark_read", { sender_id: userId });
     // Update local state
     const chat = chats.value.find((c) => c.id === userId);
     if (chat) {
@@ -217,10 +218,17 @@ export const useChatsStore = defineStore("chats", () => {
   }
 
   // Update online status
-  function updateOnlineStatus(userId, isOnline) {
+  function updateOnlineStatus(userId, isOnline, lastSeenAt = null) {
     const chat = chats.value.find((c) => c.id === userId);
     if (chat) {
       chat.is_online = isOnline;
+      if (!isOnline && lastSeenAt) {
+        console.log(lastSeenAt, "last seen at11111");
+
+        chat.last_seen_at = lastSeenAt;
+      } else if (isOnline) {
+        chat.last_seen_at = null;
+      }
     }
   }
 
