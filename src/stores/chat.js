@@ -246,6 +246,9 @@ export const useChatStore = defineStore("chat", () => {
   function sendDM(content) {
     if (!content || !currentDmUserId.value) return;
 
+    // Create a stable key for Vue's TransitionGroup that won't change when server confirms
+    const pendingKey = `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     // Create optimistic message for instant UI feedback
     const optimisticMessage = {
       id: `temp_${Date.now()}`, // Temporary ID until server confirms
@@ -258,6 +261,7 @@ export const useChatStore = defineStore("chat", () => {
       delivered_at: null,
       read_at: null,
       _pending: true, // Mark as pending until confirmed
+      _pendingKey: pendingKey, // Stable key for Vue reactivity
     };
 
     // Add to state immediately for instant UI update
@@ -311,26 +315,27 @@ export const useChatStore = defineStore("chat", () => {
                 );
               });
             }
-            // Replace with real message in state
-            dmMessages.value.splice(pendingIndex, 1, msg.payload);
+            // Update the existing message object in place (avoids Vue reactivity flicker)
+            // This prevents TransitionGroup from seeing it as remove + add
+            Object.assign(dmMessages.value[pendingIndex], {
+              ...msg.payload,
+              _pending: false,
+            });
             // Save the confirmed message to IndexedDB
             db.saveMessage(msg.payload).catch((err) => {
               console.error("Failed to save own message to IndexedDB:", err);
             });
           } else {
-            // No pending message found - check if we already have this message
+            // No pending message found - check if we already have this message by ID
             const existingIndex = dmMessages.value.findIndex(
               (m) => m.id === msg.payload.id,
             );
-            if (existingIndex === -1) {
-              // Don't have it yet, add to state and save to IndexedDB
-              if (currentDmUserId.value === msg.payload.receiver_id) {
-                dmMessages.value.push(msg.payload);
-              }
-              db.saveMessage(msg.payload).catch((err) => {
-                console.error("Failed to save message to IndexedDB:", err);
-              });
+            if (existingIndex !== -1) {
+              // Already have this message (maybe from a race condition), just update it
+              Object.assign(dmMessages.value[existingIndex], msg.payload);
             }
+            // Don't add new message here - if there's no pending message,
+            // it means we didn't send it from this client or it's a duplicate
           }
         } else {
           // Message from another user - check if we already have it
