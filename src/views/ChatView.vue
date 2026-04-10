@@ -270,7 +270,7 @@ function registerCallback(name, callback) {
   childCallbacks.value[name] = callback;
 
   // If child registers onPageRefresh and we have a pending refresh, call it immediately
-  if (name === "onPageRefresh" && callback && pendingPageRefresh.value) {
+  if (callback && pendingPageRefresh.value) {
     callback();
     pendingPageRefresh.value = false;
   }

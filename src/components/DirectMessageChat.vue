@@ -106,15 +106,14 @@ async function onParentRouteChange() {
   await chatStore.getDMMessages(route.params.userId, 1, 25);
 }
 
-// Function that parent will call when page is refreshed (F5) without route change
+// Function that parent will call when page is refreshed (F5) or URL is pasted/navigated directly
 async function onPageRefresh() {
-  console.log("Page was refreshed! Route stayed the same.");
+  console.log("Page was refreshed or URL was pasted/navigated directly.");
 
   await chatStore.clearChatMessages(route.params.userId); // Clear messages to trigger re-fetch in ChatView
   await chatStore.clearAllChatMessages(); // Clear messages to trigger re-fetch in ChatView
   await chatStore.getDMMessages(route.params.userId, 1, 25);
-  console.log(chatStore.dmMessages, "chatStore.dmMessages");
-  // Wait for DOM to render messages before scrolling
+
   nextTick(() => {
     setTimeout(() => {
       messageListRef.value?.scrollToBottom(false);
@@ -122,10 +121,15 @@ async function onPageRefresh() {
   });
 }
 // Register callbacks with parent on mount
-onMounted(() => {
+onMounted(async () => {
   if (registerParentCallback) {
     registerParentCallback("onRouteChange", onParentRouteChange);
     registerParentCallback("onPageRefresh", onPageRefresh);
+  }
+
+  // Run onPageRefresh on initial mount (handles page refresh AND direct URL navigation/paste)
+  if (route.params.userId) {
+    await onPageRefresh();
   }
 });
 

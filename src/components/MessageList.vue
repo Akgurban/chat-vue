@@ -23,7 +23,7 @@
         <TransitionGroup name="message" tag="div">
           <div
             v-for="(msg, index) in messages"
-            :key="msg.id || index"
+            :key="msg._pendingKey || msg.id || index"
             :data-message-id="msg.id"
             :class="getMessageClass(msg)"
           >
@@ -92,7 +92,12 @@
 
                   <!-- Message Status (for own messages) -->
                   <div v-if="isMine(msg)" class="message-status">
-                    <i class="pi pi-check text-xs"></i>
+                    <div v-if="msg.is_read">
+                      <i class="pi pi-check-circle text-xs"></i>
+                    </div>
+                    <div v-else>
+                      <i class="pi pi-check text-xs"></i>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -141,6 +146,7 @@ import * as db from "../utils/indexedDB";
 import ScrollPanel from "primevue/scrollpanel";
 import Avatar from "primevue/avatar";
 import Button from "primevue/button";
+import { IconField } from "primevue";
 
 const props = defineProps({
   messages: {
@@ -813,72 +819,6 @@ function checkScrollState() {
     showScrollButton.value = hasScrollableContent && !isAtBottom.value;
   }
 }
-
-// When new messages arrive
-watch(
-  () => props.messages.length,
-  async (newLength, oldLength) => {
-    // Handle initial messages load (when messages go from 0 to some value)
-    if (oldLength === 0 && newLength > 0 && !initialScrollDone.value) {
-      initialScrollDone.value = true;
-
-      // Wait for DOM to update
-      await nextTick();
-      setTimeout(async () => {
-        // Priority 0: Check for saved scroll position
-        const savedMessageId = await loadSavedScrollPosition();
-        if (savedMessageId) {
-          savedScrollMessageId.value = savedMessageId;
-          scrollToMessage(savedMessageId, "instant");
-        } else if (props.firstNewMessageId) {
-          // Priority 1: Scroll to new messages divider
-          const scrollContent = getScrollContent();
-          const dividerElement = scrollContent?.querySelector(
-            "[data-new-messages-divider]",
-          );
-          if (dividerElement) {
-            dividerElement.scrollIntoView({
-              behavior: "instant",
-              block: "start",
-            });
-            showScrollButton.value = true;
-            isAtBottom.value = false;
-          } else {
-            scrollToBottom(false);
-          }
-        } else {
-          // No saved position - scroll to bottom
-          scrollToBottom(false);
-        }
-
-        // Setup observers after initial scroll
-        setupMessageObserver();
-        setupBottomObserver();
-        setupTopObserver();
-      }, 50);
-      return;
-    }
-
-    // Handle subsequent new messages (not initial load)
-    if (newLength > oldLength && initialScrollDone.value) {
-      // New message arrived
-      if (isAtBottom.value) {
-        // If user was at bottom, scroll to new message
-        scrollToBottom();
-      } else {
-        // User is scrolled up, increment counter and show button
-        newMessagesCount.value += newLength - oldLength;
-        showScrollButton.value = true;
-      }
-    }
-    lastMessageCount.value = newLength;
-
-    // Recheck scroll state after content changes
-    setTimeout(() => {
-      checkScrollState();
-    }, 100);
-  },
-);
 
 // Sync local unread count with props
 watch(
