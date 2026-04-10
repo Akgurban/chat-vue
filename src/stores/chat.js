@@ -46,7 +46,10 @@ export const useChatStore = defineStore("chat", () => {
   async function openDM(userId, username) {
     if (userId === authStore.user?.id) return;
 
-    currentDmUserId.value = userId;
+    // Normalize userId to number for consistent comparison with WebSocket messages
+    const normalizedUserId =
+      typeof userId === "string" ? parseInt(userId, 10) : userId;
+    currentDmUserId.value = normalizedUserId;
     currentDmUsername.value = username;
     chatView.value = "dm";
 
@@ -102,7 +105,9 @@ export const useChatStore = defineStore("chat", () => {
 
     // If it's a new chat (page 1), reset state
     if (page === 1) {
-      currentDmUserId.value = userId;
+      // Normalize userId to number for consistent comparison with WebSocket messages
+      currentDmUserId.value =
+        typeof userId === "string" ? parseInt(userId, 10) : userId;
       chatView.value = "dm";
       currentPage.value = 1;
       hasMoreMessages.value = true;
@@ -308,9 +313,25 @@ export const useChatStore = defineStore("chat", () => {
             }
             // Replace with real message in state
             dmMessages.value.splice(pendingIndex, 1, msg.payload);
+            // Save the confirmed message to IndexedDB
+            db.saveMessage(msg.payload).catch((err) => {
+              console.error("Failed to save own message to IndexedDB:", err);
+            });
+          } else {
+            // No pending message found - check if we already have this message
+            const existingIndex = dmMessages.value.findIndex(
+              (m) => m.id === msg.payload.id,
+            );
+            if (existingIndex === -1) {
+              // Don't have it yet, add to state and save to IndexedDB
+              if (currentDmUserId.value === msg.payload.receiver_id) {
+                dmMessages.value.push(msg.payload);
+              }
+              db.saveMessage(msg.payload).catch((err) => {
+                console.error("Failed to save message to IndexedDB:", err);
+              });
+            }
           }
-          // If no pending message found, don't add - it means we already have it or it's a duplicate
-          // This prevents duplicate messages
         } else {
           // Message from another user - check if we already have it
           const existingIndex = dmMessages.value.findIndex(
@@ -321,10 +342,29 @@ export const useChatStore = defineStore("chat", () => {
             break;
           }
 
-          if (
-            currentDmUserId.value === msg.payload.sender_id ||
-            currentDmUserId.value === msg.payload.receiver_id
-          ) {
+          // Save to IndexedDB first
+          db.saveMessage(msg.payload).catch((err) => {
+            console.error("Failed to save received message to IndexedDB:", err);
+          });
+
+          // Check if user is currently viewing the conversation with the sender
+          // msg.payload.sender_id is the person who sent the message
+          // msg.payload.receiver_id is us (the current user)
+          const senderId =
+            typeof msg.payload.sender_id === "string"
+              ? parseInt(msg.payload.sender_id, 10)
+              : msg.payload.sender_id;
+          const isViewingThisConversation =
+            currentDmUserId.value != null && currentDmUserId.value === senderId;
+
+          console.log("New message received:", {
+            sender_id: msg.payload.sender_id,
+            senderId,
+            currentDmUserId: currentDmUserId.value,
+            isViewingThisConversation,
+          });
+
+          if (isViewingThisConversation) {
             dmMessages.value.push(msg.payload);
             // Auto-mark as read since user is viewing this DM
             chatsStore.markDmAsRead(msg.payload.sender_id);
@@ -351,9 +391,6 @@ export const useChatStore = defineStore("chat", () => {
             }
           }
         }
-
-        // Save the confirmed message to IndexedDB
-        db.saveMessage(msg.payload);
         break;
 
       case "user_typing":
