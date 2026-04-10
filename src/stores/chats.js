@@ -106,7 +106,7 @@ export const useChatsStore = defineStore("chats", () => {
 
   // Mark DM as read (via WebSocket)
   async function markDmAsRead(userId) {
-    wsStore.send("mark_read", { user_id: userId });
+    wsStore.send("mark_read", { sender_id: userId });
     // Update local state
     const chat = chats.value.find((c) => c.id === userId);
     if (chat) {

@@ -186,6 +186,30 @@ export const useChatStore = defineStore("chat", () => {
           });
         }
         break;
+
+      case "message_delivered":
+        // Update message status to delivered (single tick)
+        const messageToDeliver = dmMessages.value.find(
+          (m) => m.id === msg.payload.message_id,
+        );
+        if (messageToDeliver) {
+          messageToDeliver.delivered_at = msg.payload.delivered_at;
+        }
+        break;
+
+      case "messages_read":
+        // Update all messages from the other user to read (double tick)
+        // Mark all messages sent by the current user to the reader as read
+        dmMessages.value.forEach((m) => {
+          if (
+            m.sender_id === authStore.user?.id &&
+            m.receiver_id === msg.payload.reader_id
+          ) {
+            m.is_read = true;
+            m.read_at = msg.payload.read_at;
+          }
+        });
+        break;
     }
   }
 
