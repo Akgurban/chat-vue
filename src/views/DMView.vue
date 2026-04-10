@@ -62,8 +62,10 @@ async function loadDM() {
       username = user?.username;
     }
 
-    // Open the DM even if we don't have the username yet (it will be fetched)
-    await chatStore.openDM(userId, username || "User");
+    // Set username if available
+    if (username) {
+      chatStore.currentDmUsername = username;
+    }
 
     // Mark DM as read
     chatsStore.markDmAsRead(userId);

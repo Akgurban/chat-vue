@@ -214,7 +214,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, provide } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { useWebSocketStore } from "../stores/websocket";
@@ -247,6 +247,38 @@ const showSettings = ref(false);
 const windowWidth = ref(window.innerWidth);
 
 let searchDebounceTimer = null;
+
+// Data to share with child components (DirectMessageChat)
+const chatViewData = ref({
+  isRefreshed: false,
+  searchQuery: "",
+  // Add any other data you want to pass
+});
+
+// Track if page was refreshed - will be consumed by child when ready
+const pendingPageRefresh = ref(false);
+
+// Store for child callbacks - child registers, parent calls
+const childCallbacks = ref({
+  onRouteChange: null,
+  onPageRefresh: null, // Called when page is refreshed (F5) without route change
+  // Add more callbacks as needed
+});
+
+// Function for child to register its callback
+function registerCallback(name, callback) {
+  childCallbacks.value[name] = callback;
+
+  // If child registers onPageRefresh and we have a pending refresh, call it immediately
+  if (name === "onPageRefresh" && callback && pendingPageRefresh.value) {
+    callback();
+    pendingPageRefresh.value = false;
+  }
+}
+
+// Provide data and register function to all child components
+provide("chatViewData", chatViewData);
+provide("registerParentCallback", registerCallback);
 
 const isMobile = computed(() => windowWidth.value < 768);
 const isChatOpen = computed(() => route.name === "dm");
@@ -322,12 +354,30 @@ function handleResize() {
 }
 
 onMounted(() => {
+  const navEntry = performance.getEntriesByType("navigation")[0];
+  const isPageRefresh = navEntry?.type === "reload";
+
+  if (isPageRefresh) {
+    console.log("Page was refreshed (F5)!");
+    chatViewData.value.isRefreshed = true;
+    pendingPageRefresh.value = true; // Mark as pending, child will consume when ready
+  }
+
   window.addEventListener("resize", handleResize);
   initializeApp();
 });
 
 onUnmounted(() => {
   window.removeEventListener("resize", handleResize);
+});
+
+watch(route, () => {
+  chatViewData.value.isRefreshed = false;
+
+  // Call the child's registered callback if it exists
+  if (childCallbacks.value.onRouteChange) {
+    childCallbacks.value.onRouteChange();
+  }
 });
 
 watch(

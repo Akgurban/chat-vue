@@ -284,7 +284,9 @@ export const useChatsStore = defineStore("chats", () => {
       }
 
       // Clear messages from IndexedDB for this chat
-      await db.clearChatMessages(userId);
+      if (authStore.user?.id) {
+        await db.clearChatMessages(userId, authStore.user.id);
+      }
 
       // Clear scroll position for this chat
       if (authStore.user?.id) {

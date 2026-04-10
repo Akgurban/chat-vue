@@ -269,6 +269,21 @@ export async function saveMessage(message) {
   return saveMessages([message]);
 }
 
+/**
+ * Delete a message by ID (used for removing optimistic/pending messages)
+ */
+export async function deleteMessage(messageId) {
+  const database = await getDB();
+  const tx = database.transaction("messages", "readwrite");
+  const store = tx.objectStore("messages");
+
+  return new Promise((resolve, reject) => {
+    const request = store.delete(messageId);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
 export async function getMessagesByDM(userId1, userId2) {
   const database = await getDB();
   const tx = database.transaction("messages", "readonly");
@@ -378,6 +393,115 @@ function getScrollPositionKey(chatId, userId) {
   return `scroll_position_dm_${ids[0]}_${ids[1]}`;
 }
 
+// ==================== PAGE CACHE ====================
+
+/**
+ * Generate a unique key for DM page cache
+ */
+function getPageCacheKey(chatId, userId) {
+  const ids = [parseInt(chatId), parseInt(userId)].sort((a, b) => a - b);
+  return `dm_page_cache_${ids[0]}_${ids[1]}`;
+}
+
+/**
+ * Save page cache info for a DM conversation
+ * @param {number|string} chatId - The other user's ID
+ * @param {number|string} currentUserId - Current user ID
+ * @param {number} page - Page number
+ * @param {object} pageData - Page metadata { total_pages, total_count, has_more, limit }
+ */
+export async function savePageCache(chatId, currentUserId, page, pageData) {
+  const key = getPageCacheKey(chatId, currentUserId);
+
+  // Get existing cache
+  const existing = (await getMetadata(key)) || { pages: {}, meta: {} };
+
+  // Update page info
+  existing.pages[page] = {
+    cached_at: new Date().toISOString(),
+  };
+
+  // Update metadata
+  existing.meta = {
+    total_pages: pageData.total_pages,
+    total_count: pageData.total_count,
+    limit: pageData.limit,
+    updated_at: new Date().toISOString(),
+  };
+
+  await setMetadata(key, existing);
+}
+
+/**
+ * Get cached pages info for a DM conversation
+ * @param {number|string} chatId - The other user's ID
+ * @param {number|string} currentUserId - Current user ID
+ * @returns {Promise<{pages: object, meta: object}|null>}
+ */
+export async function getPageCache(chatId, currentUserId) {
+  const key = getPageCacheKey(chatId, currentUserId);
+  return await getMetadata(key);
+}
+
+/**
+ * Check if a specific page is cached
+ * @param {number|string} chatId - The other user's ID
+ * @param {number|string} currentUserId - Current user ID
+ * @param {number} page - Page number to check
+ * @param {number} maxAgeMs - Max age in milliseconds (default: 5 minutes)
+ * @returns {Promise<boolean>}
+ */
+export async function isPageCached(
+  chatId,
+  currentUserId,
+  page,
+  maxAgeMs = 5 * 60 * 1000,
+) {
+  const cache = await getPageCache(chatId, currentUserId);
+  if (!cache || !cache.pages || !cache.pages[page]) {
+    return false;
+  }
+
+  // Check if cache is still valid (not expired)
+  const cachedAt = new Date(cache.pages[page].cached_at);
+  const now = new Date();
+  const age = now - cachedAt;
+
+  return age < maxAgeMs;
+}
+
+/**
+ * Get list of cached page numbers
+ * @param {number|string} chatId - The other user's ID
+ * @param {number|string} currentUserId - Current user ID
+ * @returns {Promise<number[]>}
+ */
+export async function getCachedPages(chatId, currentUserId) {
+  const cache = await getPageCache(chatId, currentUserId);
+  if (!cache || !cache.pages) {
+    return [];
+  }
+  return Object.keys(cache.pages).map(Number);
+}
+
+/**
+ * Clear page cache for a DM conversation
+ * @param {number|string} chatId - The other user's ID
+ * @param {number|string} currentUserId - Current user ID
+ */
+export async function clearPageCache(chatId, currentUserId) {
+  const key = getPageCacheKey(chatId, currentUserId);
+  const database = await getDB();
+  const tx = database.transaction("metadata", "readwrite");
+  const store = tx.objectStore("metadata");
+
+  return new Promise((resolve, reject) => {
+    const request = store.delete(key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
 // ==================== CLEAR DATA ====================
 
 export async function clearAllData() {
@@ -414,34 +538,60 @@ export async function clearUserData() {
   });
 }
 
-/**
- * Clear messages for a specific chat (DM conversation)
- * @param {number} chatId - The user ID of the DM partner
- */
-export async function clearChatMessages(chatId) {
+export async function clearAllChatMessages() {
+  const database = await getDB();
+  const tx = database.transaction("messages", "readwrite");
+  tx.objectStore("messages").clear();
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+export async function clearChatMessages(chatId, currentUserId) {
   const database = await getDB();
   const tx = database.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
   const index = store.index("dm_key");
 
-  // Get all possible dm_key combinations for this chatId
-  // We need to iterate through all messages and delete those matching the chatId
+  // Convert to numbers for comparison
+  const chatIdNum = parseInt(chatId);
+  const currentUserIdNum = parseInt(currentUserId);
+
+  // Generate the dm_key for this conversation
+  const ids = [chatIdNum, currentUserIdNum].sort((a, b) => a - b);
+  const dmKey = `dm-${ids[0]}-${ids[1]}`;
+
+  console.log("Clearing messages for dm_key:", dmKey);
+
   return new Promise((resolve, reject) => {
-    const request = store.openCursor();
+    let deletedCount = 0;
+
+    // Handle transaction completion
+    tx.oncomplete = () => {
+      console.log(`Deleted ${deletedCount} messages for dm_key: ${dmKey}`);
+      resolve(deletedCount);
+    };
+
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("Transaction aborted"));
+
+    // Use the index to get only messages for this DM conversation
+    const request = index.openCursor(IDBKeyRange.only(dmKey));
+
     request.onsuccess = (event) => {
       const cursor = event.target.result;
       if (cursor) {
-        const message = cursor.value;
-        // Check if this message belongs to the chat (either as sender or receiver)
-        if (message.sender_id === chatId || message.receiver_id === chatId) {
-          cursor.delete();
-        }
+        cursor.delete();
+        deletedCount++;
         cursor.continue();
-      } else {
-        resolve();
       }
+      // When cursor is null, transaction will complete automatically
     };
-    request.onerror = () => reject(request.error);
+
+    request.onerror = () => {
+      tx.abort();
+    };
   });
 }
 
@@ -458,6 +608,7 @@ export default {
   deleteChat,
   saveMessages,
   saveMessage,
+  deleteMessage,
   getMessagesByDM,
   getLastMessageId,
   setMetadata,
@@ -465,7 +616,15 @@ export default {
   saveScrollPosition,
   getScrollPosition,
   clearScrollPosition,
+  // Page cache
+  savePageCache,
+  getPageCache,
+  isPageCached,
+  getCachedPages,
+  clearPageCache,
+  // Clear data
   clearChatMessages,
+  clearAllChatMessages,
   clearAllData,
   clearUserData,
 };
