@@ -416,29 +416,39 @@ export async function clearUserData() {
 
 /**
  * Clear messages for a specific chat (DM conversation)
- * @param {number} chatId - The user ID of the DM partner
+ * @param {number|string} chatId - The user ID of the DM partner
+ * @param {number|string} currentUserId - The current logged-in user ID
  */
-export async function clearChatMessages(chatId) {
+export async function clearChatMessages(chatId, currentUserId) {
   const database = await getDB();
   const tx = database.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
   const index = store.index("dm_key");
 
-  // Get all possible dm_key combinations for this chatId
-  // We need to iterate through all messages and delete those matching the chatId
+  // Convert to numbers for comparison
+  const chatIdNum = parseInt(chatId);
+  const currentUserIdNum = parseInt(currentUserId);
+
+  // Generate the dm_key for this conversation
+  const ids = [chatIdNum, currentUserIdNum].sort((a, b) => a - b);
+  const dmKey = `dm-${ids[0]}-${ids[1]}`;
+
+  console.log("Clearing messages for dm_key:", dmKey);
+
+  // Use the index to get only messages for this DM conversation
   return new Promise((resolve, reject) => {
-    const request = store.openCursor();
+    const request = index.openCursor(IDBKeyRange.only(dmKey));
+    let deletedCount = 0;
+
     request.onsuccess = (event) => {
       const cursor = event.target.result;
       if (cursor) {
-        const message = cursor.value;
-        // Check if this message belongs to the chat (either as sender or receiver)
-        if (message.sender_id === chatId || message.receiver_id === chatId) {
-          cursor.delete();
-        }
+        cursor.delete();
+        deletedCount++;
         cursor.continue();
       } else {
-        resolve();
+        console.log(`Deleted ${deletedCount} messages for dm_key: ${dmKey}`);
+        resolve(deletedCount);
       }
     };
     request.onerror = () => reject(request.error);

@@ -69,8 +69,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick } from "vue";
-import { useRouter } from "vue-router";
+import { ref, reactive, computed, nextTick, inject } from "vue";
+import { onBeforeRouteUpdate, useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useChatsStore } from "../stores/chats";
 import { useAuthStore } from "../stores/auth";
@@ -81,7 +81,65 @@ import Avatar from "primevue/avatar";
 import Select from "primevue/select";
 import Checkbox from "primevue/checkbox";
 import MessageList from "./MessageList.vue";
+import { onMounted, watch, onUnmounted } from "vue";
+import { useRoute } from "vue-router";
 
+// Inject data from ChatView parent
+const chatViewData = inject("chatViewData");
+const registerParentCallback = inject("registerParentCallback");
+
+const route = useRoute();
+
+// Function that parent will call when route changes
+function onParentRouteChange() {
+  console.log("Parent route changed! Do something here...");
+  // Add your logic here - this is called from ChatView
+}
+
+// Function that parent will call when page is refreshed (F5) without route change
+async function onPageRefresh() {
+  console.log("Page was refreshed! Route stayed the same.");
+  // chatStore.dmMessages; // Clear messages to trigger re-fetch in ChatView
+  await chatStore.clearChatMessages(route.params.id); // Clear messages to trigger re-fetch in ChatView
+  console.log(chatStore.dmMessages, "chatStore.dmMessages");
+  nextTick(() => {
+    // Scroll to bottom after refresh
+    messageListRef.value?.scrollToBottom();
+  });
+}
+
+// Register callbacks with parent on mount
+onMounted(() => {
+  if (registerParentCallback) {
+    registerParentCallback("onRouteChange", onParentRouteChange);
+    registerParentCallback("onPageRefresh", onPageRefresh);
+  }
+});
+
+// Clean up on unmount
+onUnmounted(() => {
+  if (registerParentCallback) {
+    registerParentCallback("onRouteChange", null);
+    registerParentCallback("onPageRefresh", null);
+  }
+});
+
+// Watch for changes from ChatView
+watch(
+  () => chatViewData.value,
+  (newData) => {
+    console.log("Data from ChatView changed:", newData);
+    // React to changes here
+  },
+  { deep: true },
+);
+
+watch(
+  () => route.params.id,
+  (newId, oldId) => {
+    console.log("Route param changed:", oldId, "→", newId);
+  },
+);
 const chatStore = useChatStore();
 const chatsStore = useChatsStore();
 const authStore = useAuthStore();
@@ -122,26 +180,6 @@ const chatSettings = reactive({
   myMessageColor: "primary",
   showAvatars: true,
 });
-
-const themeOptions = [
-  { label: "Modern", value: "modern" },
-  { label: "Classic", value: "classic" },
-  { label: "Minimal", value: "minimal" },
-  { label: "Bubble", value: "bubble" },
-];
-
-const bubbleOptions = [
-  { label: "Rounded", value: "rounded" },
-  { label: "Sharp", value: "sharp" },
-  { label: "Pill", value: "pill" },
-];
-
-const colorOptions = [
-  { label: "Purple", value: "primary" },
-  { label: "Green", value: "green" },
-  { label: "Blue", value: "blue" },
-  { label: "Pink", value: "purple" },
-];
 
 function getAvatarColor(name) {
   if (!name) return "#6366f1";

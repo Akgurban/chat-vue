@@ -1,9 +1,9 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "../stores/auth";
+import DMView from "../views/DMView.vue";
 
 // Lazy-loaded views
 const ChatView = () => import("../views/ChatView.vue");
-const DMView = () => import("../views/DMView.vue");
 const LoginView = () => import("../views/LoginView.vue");
 
 const routes = [

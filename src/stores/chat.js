@@ -192,6 +192,17 @@ export const useChatStore = defineStore("chat", () => {
     toastInstance = toast;
   }
 
+  async function clearChatMessages(chatId) {
+    try {
+      const currentUserId = authStore.user?.id;
+      if (currentUserId) {
+        await db.clearChatMessages(chatId, currentUserId);
+      }
+    } catch (err) {
+      console.error("Failed to clear cached DMs:", err);
+    }
+  }
+
   function reset() {
     users.value = [];
     currentDmUserId.value = null;
@@ -208,6 +219,7 @@ export const useChatStore = defineStore("chat", () => {
     dmMessages,
     typingUser,
     chatView,
+    clearChatMessages,
     sendTyping,
     openDM,
     sendDM,

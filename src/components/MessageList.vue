@@ -37,6 +37,13 @@
                 {{ msg.content }}
               </div>
             </template>
+            <!-- System Message -->
+            <template v-if="msg.type === 'system'">
+              <div class="system-message">
+                <i class="pi pi-info-circle mr-1"></i>
+                {{ msg.content }}
+              </div>
+            </template>
 
             <!-- Chat Message -->
             <template v-else>
@@ -168,7 +175,6 @@ const props = defineProps({
 const emit = defineEmits(["messageRead", "markAllRead"]);
 
 const authStore = useAuthStore();
-const messagesContainer = ref(null);
 const scrollPanelRef = ref(null);
 const bottomSentinel = ref(null);
 const showScrollButton = ref(true);
@@ -832,6 +838,8 @@ defineExpose({
 </script>
 
 <style scoped>
+@reference "tailwindcss";
+
 /* Message Transitions */
 .message-enter-active {
   animation: messageIn 0.3s ease-out;
