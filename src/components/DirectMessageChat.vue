@@ -13,7 +13,11 @@
         />
         <div class="header-text">
           <span class="chat-title">{{ displayUsername }}</span>
-          <span class="chat-subtitle">Direct Message</span>
+          <span
+            class="chat-subtitle"
+            :class="{ 'text-green-500': currentChat?.is_online }"
+            >{{ chatStatus }}</span
+          >
         </div>
       </div>
       <div class="header-actions">
@@ -99,6 +103,32 @@ const currentChat = computed(() => {
 // Get the real username from the chat in sidebar
 const displayUsername = computed(() => {
   return currentChat.value?.name || chatStore.currentDmUsername || "User";
+});
+
+const chatStatus = computed(() => {
+  if (!currentChat.value) return "Offline";
+  if (currentChat.value.is_online) return "Online";
+
+  if (currentChat.value.last_seen_at) {
+    const date = new Date(currentChat.value.last_seen_at);
+    const now = new Date();
+    const diff = now - date;
+
+    if (diff < 60000) return "last seen just now";
+    if (diff < 3600000) {
+      const minutes = Math.floor(diff / 60000);
+      return `last seen ${minutes} minute${minutes > 1 ? "s" : ""} ago`;
+    }
+    if (diff < 86400000 && date.getDate() === now.getDate()) {
+      return `last seen today at ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+    if (diff < 172800000) {
+      return `last seen yesterday at ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+    return `last seen on ${date.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+  }
+
+  return "Offline";
 });
 
 const currentChatUnread = computed(() => {
