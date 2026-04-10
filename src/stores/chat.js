@@ -167,6 +167,7 @@ export const useChatStore = defineStore("chat", () => {
         chatsStore.updateOnlineStatus(
           msg.payload.user_id,
           msg.type === "user_online",
+          msg.payload.last_seen_at
         );
         break;
 
