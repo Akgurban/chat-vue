@@ -36,6 +36,13 @@ export const useChatStore = defineStore("chat", () => {
   const typingUser = ref("");
   const chatView = ref("default"); // 'default', 'dm'
 
+  // Pagination state
+  const currentPage = ref(1);
+  const totalPages = ref(1);
+  const totalCount = ref(0);
+  const hasMoreMessages = ref(true);
+  const isLoadingMore = ref(false);
+
   async function openDM(userId, username) {
     if (userId === authStore.user?.id) return;
 
@@ -82,8 +89,181 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  async function getDMMessages(
+    userId,
+    page = 1,
+    limit = 25,
+    unread_only = false,
+    forceRefresh = false,
+  ) {
+    if (userId === authStore.user?.id) return;
+
+    const currentUserId = authStore.user?.id;
+
+    // If it's a new chat (page 1), reset state
+    if (page === 1) {
+      currentDmUserId.value = userId;
+      chatView.value = "dm";
+      currentPage.value = 1;
+      hasMoreMessages.value = true;
+      dmMessages.value = [];
+
+      // Load from cache first for instant display
+      try {
+        const cachedMessages = await db.getMessagesByDM(currentUserId, userId);
+        console.log(cachedMessages, "cachedMessages");
+
+        if (cachedMessages.length > 0) {
+          dmMessages.value = cachedMessages;
+
+          // Check if page 1 is cached and still valid
+          const isCached = await db.isPageCached(userId, currentUserId, 1);
+          if (isCached && !forceRefresh && !unread_only) {
+            // Get cached metadata
+            const pageCache = await db.getPageCache(userId, currentUserId);
+            if (pageCache?.meta) {
+              totalPages.value = pageCache.meta.total_pages || 1;
+              totalCount.value = pageCache.meta.total_count || 0;
+              hasMoreMessages.value = page < totalPages.value;
+            }
+            console.log("Page 1 served from cache");
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load cached DMs:", err);
+      }
+    } else {
+      // For pagination (page > 1), check if this page is cached
+      if (!forceRefresh && !unread_only) {
+        const isCached = await db.isPageCached(userId, currentUserId, page);
+        if (isCached) {
+          console.log(`Page ${page} already cached, skipping server request`);
+          // Messages are already in dmMessages from previous loads
+          // Just update the current page
+          currentPage.value = page;
+          return;
+        }
+      }
+    }
+
+    // Prevent duplicate loading
+    if (isLoadingMore.value) return;
+    isLoadingMore.value = true;
+
+    try {
+      // Fetch from server with pagination
+      const url = `/api/dm/${userId}?page=${page}&limit=${limit}&unread_only=${unread_only}`;
+      const response = await authStore.api(url);
+
+      // Handle new API response format:
+      // { messages: [...], current_page: 1, total_pages: 5, total_count: 243, limit: 50, has_more: true }
+      const serverMessages = response.messages || [];
+
+      // Update pagination state from API response
+      totalPages.value = response.total_pages || 1;
+      totalCount.value = response.total_count || 0;
+      currentPage.value = response.current_page || page;
+
+      // Use has_more from API response
+      hasMoreMessages.value = response.has_more ?? page < totalPages.value;
+
+      if (serverMessages.length > 0) {
+        // Save new messages to IndexedDB
+        await db.saveMessages(serverMessages);
+
+        // Save page cache info
+        await db.savePageCache(userId, currentUserId, page, {
+          total_pages: response.total_pages,
+          total_count: response.total_count,
+          limit: response.limit,
+          has_more: response.has_more,
+        });
+
+        if (page === 1) {
+          // First page - replace or merge with cache
+          const existingIds = new Set(dmMessages.value.map((m) => m.id));
+          const newMessages = serverMessages.filter(
+            (m) => !existingIds.has(m.id),
+          );
+
+          if (newMessages.length > 0) {
+            // Merge and sort by date
+            dmMessages.value = [...dmMessages.value, ...newMessages].sort(
+              (a, b) => new Date(a.created_at) - new Date(b.created_at),
+            );
+          }
+        } else {
+          // Older messages (pagination) - prepend to existing
+          const existingIds = new Set(dmMessages.value.map((m) => m.id));
+          const newMessages = serverMessages.filter(
+            (m) => !existingIds.has(m.id),
+          );
+
+          if (newMessages.length > 0) {
+            dmMessages.value = [...newMessages, ...dmMessages.value].sort(
+              (a, b) => new Date(a.created_at) - new Date(b.created_at),
+            );
+          }
+        }
+      } else if (page === 1) {
+        // No messages at all
+        dmMessages.value = [];
+        hasMoreMessages.value = false;
+      }
+    } catch (err) {
+      console.error("Failed to load DMs:", err);
+      if (page === 1 && dmMessages.value.length === 0) {
+        dmMessages.value = [];
+      }
+    } finally {
+      isLoadingMore.value = false;
+    }
+  }
+
+  /**
+   * Load more (older) messages - for infinite scroll
+   */
+  async function loadMoreMessages(limit = 25) {
+    if (
+      !hasMoreMessages.value ||
+      isLoadingMore.value ||
+      !currentDmUserId.value
+    ) {
+      return false;
+    }
+
+    const nextPage = currentPage.value + 1;
+    await getDMMessages(currentDmUserId.value, nextPage, limit);
+    return hasMoreMessages.value;
+  }
+
   function sendDM(content) {
     if (!content || !currentDmUserId.value) return;
+
+    // Create optimistic message for instant UI feedback
+    const optimisticMessage = {
+      id: `temp_${Date.now()}`, // Temporary ID until server confirms
+      sender_id: authStore.user?.id,
+      sender_username: authStore.user?.username,
+      receiver_id: currentDmUserId.value,
+      content,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      delivered_at: null,
+      read_at: null,
+      _pending: true, // Mark as pending until confirmed
+    };
+
+    // Add to state immediately for instant UI update
+    dmMessages.value.push(optimisticMessage);
+
+    // Save to IndexedDB (will be updated when server confirms)
+    db.saveMessage(optimisticMessage).catch((err) => {
+      console.error("Failed to save optimistic message to IndexedDB:", err);
+    });
+
+    // Send via WebSocket
     wsStore.send("direct_message", {
       receiver_id: currentDmUserId.value,
       content,
@@ -103,42 +283,77 @@ export const useChatStore = defineStore("chat", () => {
         // Update chats store with new message
         chatsStore.handleNewMessage(msg.payload);
 
-        // Save to IndexedDB
-        db.saveMessage(msg.payload);
+        // Check if this is a confirmation of our own sent message
+        const isOwnMessage = msg.payload.sender_id === authStore.user?.id;
 
-        if (
-          currentDmUserId.value === msg.payload.sender_id ||
-          currentDmUserId.value === msg.payload.receiver_id
-        ) {
-          dmMessages.value.push(msg.payload);
-          // Auto-mark as read since user is viewing this DM
-          const otherUserId =
-            msg.payload.sender_id === authStore.user?.id
-              ? msg.payload.receiver_id
-              : msg.payload.sender_id;
-          chatsStore.markDmAsRead(otherUserId);
+        if (isOwnMessage) {
+          // Find and replace the optimistic/pending message with the real one
+          const pendingIndex = dmMessages.value.findIndex(
+            (m) =>
+              m._pending &&
+              m.content === msg.payload.content &&
+              m.receiver_id === msg.payload.receiver_id,
+          );
+
+          if (pendingIndex !== -1) {
+            // Remove the pending message from IndexedDB
+            const pendingMsg = dmMessages.value[pendingIndex];
+            if (pendingMsg.id && String(pendingMsg.id).startsWith("temp_")) {
+              db.deleteMessage(pendingMsg.id).catch((err) => {
+                console.error(
+                  "Failed to delete pending message from IndexedDB:",
+                  err,
+                );
+              });
+            }
+            // Replace with real message in state
+            dmMessages.value.splice(pendingIndex, 1, msg.payload);
+          }
+          // If no pending message found, don't add - it means we already have it or it's a duplicate
+          // This prevents duplicate messages
         } else {
-          // Show toast notification for DMs when not in that conversation
-          if (toastInstance && msg.payload.sender_id !== authStore.user?.id) {
-            playNotificationSound();
-            toastInstance.add({
-              severity: "info",
-              summary: `Message from ${msg.payload.sender_username || "Someone"}`,
-              detail:
-                msg.payload.content?.substring(0, 50) +
-                (msg.payload.content?.length > 50 ? "..." : ""),
-              life: 5000,
-            });
+          // Message from another user - check if we already have it
+          const existingIndex = dmMessages.value.findIndex(
+            (m) => m.id === msg.payload.id,
+          );
+          if (existingIndex !== -1) {
+            // Already have this message, skip
+            break;
+          }
 
-            // Show browser notification if tab is not focused
-            browserNotifications.showMessageNotification(
-              msg.payload.sender_username || "Someone",
-              msg.payload.content,
-              "dm",
-              msg.payload.sender_id,
-            );
+          if (
+            currentDmUserId.value === msg.payload.sender_id ||
+            currentDmUserId.value === msg.payload.receiver_id
+          ) {
+            dmMessages.value.push(msg.payload);
+            // Auto-mark as read since user is viewing this DM
+            chatsStore.markDmAsRead(msg.payload.sender_id);
+          } else {
+            // Show toast notification for DMs when not in that conversation
+            if (toastInstance && msg.payload.sender_id !== authStore.user?.id) {
+              playNotificationSound();
+              toastInstance.add({
+                severity: "info",
+                summary: `Message from ${msg.payload.sender_username || "Someone"}`,
+                detail:
+                  msg.payload.content?.substring(0, 50) +
+                  (msg.payload.content?.length > 50 ? "..." : ""),
+                life: 5000,
+              });
+
+              // Show browser notification if tab is not focused
+              browserNotifications.showMessageNotification(
+                msg.payload.sender_username || "Someone",
+                msg.payload.content,
+                "dm",
+                msg.payload.sender_id,
+              );
+            }
           }
         }
+
+        // Save the confirmed message to IndexedDB
+        db.saveMessage(msg.payload);
         break;
 
       case "user_typing":
@@ -167,7 +382,7 @@ export const useChatStore = defineStore("chat", () => {
         chatsStore.updateOnlineStatus(
           msg.payload.user_id,
           msg.type === "user_online",
-          msg.payload.last_seen_at
+          msg.payload.last_seen_at,
         );
         break;
 
@@ -220,8 +435,31 @@ export const useChatStore = defineStore("chat", () => {
   async function clearChatMessages(chatId) {
     try {
       const currentUserId = authStore.user?.id;
-      if (currentUserId) {
+      console.log(authStore.user.id, "authStore");
+
+      if (currentUserId && chatId) {
+        dmMessages.value = [];
         await db.clearChatMessages(chatId, currentUserId);
+        // Also clear the page cache for this conversation
+        await db.clearPageCache(chatId, currentUserId);
+        console.log(dmMessages.value, "dmMessages clearChatMessages");
+      }
+    } catch (err) {
+      console.error("Failed to clear cached DMs:", err);
+    }
+  }
+  async function clearAllChatMessages() {
+    try {
+      const currentUserId = authStore.user?.id;
+
+      if (currentUserId) {
+        dmMessages.value = [];
+        await db.clearAllChatMessages(currentUserId);
+        // Clear page cache for current DM if exists
+        if (currentDmUserId.value) {
+          await db.clearPageCache(currentDmUserId.value, currentUserId);
+        }
+        console.log(dmMessages.value, "dmMessages clearAllChatMessages");
       }
     } catch (err) {
       console.error("Failed to clear cached DMs:", err);
@@ -235,6 +473,11 @@ export const useChatStore = defineStore("chat", () => {
     dmMessages.value = [];
     typingUser.value = "";
     chatView.value = "default";
+    currentPage.value = 1;
+    totalPages.value = 1;
+    totalCount.value = 0;
+    hasMoreMessages.value = true;
+    isLoadingMore.value = false;
   }
 
   return {
@@ -244,9 +487,19 @@ export const useChatStore = defineStore("chat", () => {
     dmMessages,
     typingUser,
     chatView,
+    // Pagination state
+    currentPage,
+    totalPages,
+    totalCount,
+    hasMoreMessages,
+    isLoadingMore,
+    // Functions
     clearChatMessages,
     sendTyping,
     openDM,
+    getDMMessages,
+    clearAllChatMessages,
+    loadMoreMessages,
     sendDM,
     handleWebSocketMessage,
     setToastInstance,

@@ -13,11 +13,7 @@
         />
         <div class="header-text">
           <span class="chat-title">{{ displayUsername }}</span>
-          <span
-            class="chat-subtitle"
-            :class="{ 'text-green-500': currentChat?.is_online }"
-            >{{ chatStatus }}</span
-          >
+          <span class="chat-subtitle">Direct Message</span>
         </div>
       </div>
       <div class="header-actions">
@@ -48,8 +44,11 @@
         :firstNewMessageId="chatStore.firstNewDmMessageId"
         chatType="direct"
         :chatId="chatStore.currentDmUserId"
+        :hasMoreMessages="chatStore.hasMoreMessages"
+        :isLoadingMore="chatStore.isLoadingMore"
         @messageRead="handleMessageRead"
         @markAllRead="handleMarkAllRead"
+        @loadMore="handleLoadMore"
       />
     </div>
 
@@ -74,7 +73,6 @@
 
 <script setup>
 import { ref, reactive, computed, nextTick, inject } from "vue";
-import { onBeforeRouteUpdate, useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useChatsStore } from "../stores/chats";
 import { useAuthStore } from "../stores/auth";
@@ -82,36 +80,47 @@ import { useWebSocketStore } from "../stores/websocket";
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
 import Avatar from "primevue/avatar";
-import Select from "primevue/select";
-import Checkbox from "primevue/checkbox";
 import MessageList from "./MessageList.vue";
 import { onMounted, watch, onUnmounted } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 // Inject data from ChatView parent
 const chatViewData = inject("chatViewData");
 const registerParentCallback = inject("registerParentCallback");
 
 const route = useRoute();
+const router = useRouter();
 
+const chatStore = useChatStore();
+const chatsStore = useChatsStore();
+const authStore = useAuthStore();
+const wsStore = useWebSocketStore();
+const message = ref("");
+const page = ref(1);
+const messageListRef = ref(null);
+const clearing = ref(false);
 // Function that parent will call when route changes
-function onParentRouteChange() {
+async function onParentRouteChange() {
   console.log("Parent route changed! Do something here...");
   // Add your logic here - this is called from ChatView
+  await chatStore.getDMMessages(route.params.userId, 1, 25);
 }
 
 // Function that parent will call when page is refreshed (F5) without route change
 async function onPageRefresh() {
   console.log("Page was refreshed! Route stayed the same.");
-  // chatStore.dmMessages; // Clear messages to trigger re-fetch in ChatView
-  await chatStore.clearChatMessages(route.params.id); // Clear messages to trigger re-fetch in ChatView
+
+  await chatStore.clearChatMessages(route.params.userId); // Clear messages to trigger re-fetch in ChatView
+  await chatStore.clearAllChatMessages(); // Clear messages to trigger re-fetch in ChatView
+  await chatStore.getDMMessages(route.params.userId, 1, 25);
   console.log(chatStore.dmMessages, "chatStore.dmMessages");
+  // Wait for DOM to render messages before scrolling
   nextTick(() => {
-    // Scroll to bottom after refresh
-    messageListRef.value?.scrollToBottom();
+    setTimeout(() => {
+      messageListRef.value?.scrollToBottom(false);
+    }, 100);
   });
 }
-
 // Register callbacks with parent on mount
 onMounted(() => {
   if (registerParentCallback) {
@@ -144,14 +153,6 @@ watch(
     console.log("Route param changed:", oldId, "→", newId);
   },
 );
-const chatStore = useChatStore();
-const chatsStore = useChatsStore();
-const authStore = useAuthStore();
-const wsStore = useWebSocketStore();
-const router = useRouter();
-const message = ref("");
-const messageListRef = ref(null);
-const clearing = ref(false);
 
 // Get current chat's unread info
 const currentChat = computed(() => {
@@ -161,32 +162,6 @@ const currentChat = computed(() => {
 // Get the real username from the chat in sidebar
 const displayUsername = computed(() => {
   return currentChat.value?.name || chatStore.currentDmUsername || "User";
-});
-
-const chatStatus = computed(() => {
-  if (!currentChat.value) return "Offline";
-  if (currentChat.value.is_online) return "Online";
-
-  if (currentChat.value.last_seen_at) {
-    const date = new Date(currentChat.value.last_seen_at);
-    const now = new Date();
-    const diff = now - date;
-
-    if (diff < 60000) return "last seen just now";
-    if (diff < 3600000) {
-      const minutes = Math.floor(diff / 60000);
-      return `last seen ${minutes} minute${minutes > 1 ? "s" : ""} ago`;
-    }
-    if (diff < 86400000 && date.getDate() === now.getDate()) {
-      return `last seen today at ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-    }
-    if (diff < 172800000) {
-      return `last seen yesterday at ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-    }
-    return `last seen on ${date.toLocaleDateString([], { month: "short", day: "numeric" })}`;
-  }
-
-  return "Offline";
 });
 
 const currentChatUnread = computed(() => {
@@ -208,7 +183,7 @@ const chatSettings = reactive({
   theme: "modern",
   bubbleStyle: "rounded",
   myMessageColor: "primary",
-  showAvatars: true,
+  showAvatars: false,
 });
 
 function getAvatarColor(name) {
@@ -234,9 +209,21 @@ function handleSend() {
     message.value = "";
     // Scroll to bottom after sending message
     nextTick(() => {
-      messageListRef.value?.scrollToBottom();
+      setTimeout(() => {
+        messageListRef.value?.scrollToBottom(false);
+      }, 50);
     });
   }
+}
+
+/**
+ * Handle load more messages (infinite scroll)
+ * Called when user scrolls to the top
+ */
+async function handleLoadMore() {
+  page.value++;
+
+  await chatStore.loadMoreMessages(25);
 }
 
 /**
@@ -369,6 +356,7 @@ async function confirmClearChat() {
   overflow: hidden;
   position: relative;
   min-height: 0;
+  height: 0; /* Forces flex item to respect flex: 1 properly */
 }
 
 /* Message Input */
