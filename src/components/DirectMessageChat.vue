@@ -211,6 +211,12 @@ function handleSend() {
   if (message.value.trim()) {
     chatStore.sendDM(message.value.trim());
     message.value = "";
+    // Scroll to bottom after sending message
+    // nextTick(() => {
+    //   setTimeout(() => {
+    //     messageListRef.value?.scrollToBottom(true);
+    //   }, 50);
+    // });
   }
 }
 
