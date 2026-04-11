@@ -317,9 +317,12 @@ export const useChatStore = defineStore("chat", () => {
             }
             // Update the existing message object in place (avoids Vue reactivity flicker)
             // This prevents TransitionGroup from seeing it as remove + add
+            // IMPORTANT: Preserve _pendingKey so Vue's :key doesn't change
+            const existingPendingKey = pendingMsg._pendingKey;
             Object.assign(dmMessages.value[pendingIndex], {
               ...msg.payload,
               _pending: false,
+              _pendingKey: existingPendingKey, // Keep the stable key
             });
             // Save the confirmed message to IndexedDB
             db.saveMessage(msg.payload).catch((err) => {

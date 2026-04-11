@@ -350,6 +350,8 @@ function handleScroll(event) {
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
 
       // Consider "at bottom" if within 100px or no scrollable content
+      console.log(distanceFromBottom, "distanceFromBottom");
+
       isAtBottom.value = !hasScrollableContent || distanceFromBottom < 100;
       showScrollButton.value = hasScrollableContent && !isAtBottom.value;
 
@@ -590,8 +592,8 @@ function setupBottomObserver() {
     },
     {
       root: scrollContent,
-      threshold: 0.1, // Trigger when even 10% of sentinel is visible
-      rootMargin: "0px",
+      threshold: 0.3, // Trigger when even 10% of sentinel is visible
+      rootMargin: "500px",
     },
   );
 
@@ -641,8 +643,8 @@ function setupTopObserver() {
     },
     {
       root: scrollContent,
-      threshold: 0.1, // Trigger when 10% of sentinel is visible
-      rootMargin: "100px 0px 0px 0px", // Trigger 100px before reaching top
+      threshold: 0.3, // Trigger when 30% of sentinel is visible
+      rootMargin: "300px 0px 0px 0px", // Trigger 300px before reaching top
     },
   );
 
@@ -671,6 +673,7 @@ onMounted(async () => {
       setTimeout(async () => {
         // Priority 0: Check for saved scroll position from IndexedDB
         const savedMessageId = await loadSavedScrollPosition();
+
         if (savedMessageId) {
           console.log(
             savedMessageId,
@@ -819,6 +822,85 @@ function checkScrollState() {
     showScrollButton.value = hasScrollableContent && !isAtBottom.value;
   }
 }
+
+// When new messages arrive
+watch(
+  () => props.messages.length,
+  async (newLength, oldLength) => {
+    // Skip if length didn't actually change (shouldn't happen, but safety check)
+
+    if (newLength === oldLength) return;
+    console.log(newLength, oldLength, "initialScrollDone.value");
+
+    // Handle initial messages load (when messages go from 0 to some value)
+    if (oldLength === 0 && newLength > 0) {
+      console.log(newLength, oldLength, "break2");
+
+      // Wait for DOM to update
+      await nextTick();
+      setTimeout(async () => {
+        // Priority 0: Check for saved scroll position
+        const savedMessageId = await loadSavedScrollPosition();
+        if (savedMessageId) {
+          savedScrollMessageId.value = savedMessageId;
+          scrollToMessage(savedMessageId, "instant");
+        } else if (props.firstNewMessageId) {
+          // Priority 1: Scroll to new messages divider
+          const scrollContent = getScrollContent();
+          const dividerElement = scrollContent?.querySelector(
+            "[data-new-messages-divider]",
+          );
+          if (dividerElement) {
+            dividerElement.scrollIntoView({
+              behavior: "instant",
+              block: "start",
+            });
+            showScrollButton.value = true;
+            isAtBottom.value = false;
+          } else {
+            scrollToBottom(true);
+          }
+        } else {
+          // No saved position - scroll to bottom
+          scrollToBottom(true);
+        }
+
+        // Setup observers after initial scroll
+        setupMessageObserver();
+        setupBottomObserver();
+        setupTopObserver();
+      }, 50);
+      return;
+    }
+
+    // Handle subsequent new messages (not initial load)
+    if (newLength > oldLength) {
+      // Check if the new message is our own (sent by us)
+      // In that case, we already scrolled when sending, so just ensure we stay at bottom
+      const lastMessage = props.messages[props.messages.length - 1];
+      const isOwnMessage = lastMessage && isMine(lastMessage);
+
+      if (isAtBottom.value || isOwnMessage) {
+        // If user was at bottom OR it's our own message, scroll to new message
+        // Use nextTick to ensure DOM is updated first
+        await nextTick();
+
+        scrollToBottom(isOwnMessage ? false : true);
+      } else {
+        // User is scrolled up, increment counter and show button
+        newMessagesCount.value += newLength - oldLength;
+        showScrollButton.value = true;
+      }
+    }
+
+    lastMessageCount.value = newLength;
+
+    // Recheck scroll state after content changes
+    setTimeout(() => {
+      checkScrollState();
+    }, 100);
+  },
+);
 
 // Sync local unread count with props
 watch(
