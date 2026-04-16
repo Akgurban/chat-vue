@@ -7,7 +7,7 @@
     >
       <div ref="messagesContainer" class="p-3">
         <!-- Top Sentinel - triggers loading older messages -->
-        <div ref="topSentinel" class="scroll-sentinel top-sentinel">
+        <div ref="topSentinel" class="scroll-sentinel min-h-5 mb-5">
           <div v-if="isLoadingMore" class="loading-more">
             <i class="pi pi-spin pi-spinner"></i>
             <span>Loading older messages...</span>
@@ -20,92 +20,81 @@
           </div>
         </div>
 
-        <TransitionGroup name="message" tag="div">
+        <div
+          v-for="(msg, index) in messages"
+          :key="msg._pendingKey || msg.id || index"
+          :data-message-id="msg.id"
+          :class="getMessageClass(msg)"
+        >
+          <!-- New messages divider (between cached and fresh messages) -->
           <div
-            v-for="(msg, index) in messages"
-            :key="msg._pendingKey || msg.id || index"
-            :data-message-id="msg.id"
-            :class="getMessageClass(msg)"
+            v-if="msg.id === firstNewMessageId"
+            class="new-messages-divider"
+            data-new-messages-divider
           >
-            <!-- New messages divider (between cached and fresh messages) -->
-            <div
-              v-if="msg.id === firstNewMessageId"
-              class="new-messages-divider"
-              data-new-messages-divider
-            >
-              <span>New messages</span>
+            <span>New messages</span>
+          </div>
+
+          <!-- Unread divider -->
+          <div
+            v-if="msg.id === firstUnreadMessageId && !isMine(msg)"
+            class="unread-divider"
+          >
+            <span>Unread messages</span>
+          </div>
+
+          <!-- System Message -->
+          <template v-if="msg.type === 'system'">
+            <div class="system-message">
+              <i class="pi pi-info-circle mr-1"></i>
+              {{ msg.content }}
             </div>
+          </template>
 
-            <!-- Unread divider -->
+          <!-- Chat Message -->
+          <template v-else>
             <div
-              v-if="
-                msg.id === firstUnreadMessageId && msg.id !== firstNewMessageId
-              "
-              class="unread-divider"
+              class="message-bubble"
+              :class="getBubbleClass(msg, props.myMessageColor)"
             >
-              <span>Unread messages</span>
-            </div>
+              <!-- Avatar for others' messages -->
+              <Avatar
+                v-if="!isMine(msg) && showAvatars"
+                :label="msg.sender_username?.charAt(0).toUpperCase()"
+                :style="{
+                  backgroundColor: getAvatarColor(msg.sender_username),
+                }"
+                class="message-avatar"
+                shape="circle"
+              />
 
-            <!-- System Message -->
-            <template v-if="msg.type === 'system'">
-              <div class="system-message">
-                <i class="pi pi-info-circle mr-1"></i>
-                {{ msg.content }}
-              </div>
-            </template>
-            <!-- System Message -->
-            <template v-if="msg.type === 'system'">
-              <div class="system-message">
-                <i class="pi pi-info-circle mr-1"></i>
-                {{ msg.content }}
-              </div>
-            </template>
+              <div class="message-content">
+                <!-- Username & Time -->
+                <div class="message-header" v-if="showUsername || !isMine(msg)">
+                  <span class="message-username">{{
+                    msg.sender_username
+                  }}</span>
+                  <span class="message-time">{{
+                    formatTime(msg.created_at)
+                  }}</span>
+                </div>
 
-            <!-- Chat Message -->
-            <template v-else>
-              <div class="message-bubble" :class="getBubbleClass(msg)">
-                <!-- Avatar for others' messages -->
-                <Avatar
-                  v-if="!isMine(msg) && showAvatars"
-                  :label="msg.sender_username?.charAt(0).toUpperCase()"
-                  :style="{
-                    backgroundColor: getAvatarColor(msg.sender_username),
-                  }"
-                  class="message-avatar"
-                  shape="circle"
-                />
+                <!-- Message Text -->
+                <div class="message-text">{{ msg.content }}</div>
 
-                <div class="message-content">
-                  <!-- Username & Time -->
-                  <div
-                    class="message-header"
-                    v-if="showUsername || !isMine(msg)"
-                  >
-                    <span class="message-username">{{
-                      msg.sender_username
-                    }}</span>
-                    <span class="message-time">{{
-                      formatTime(msg.created_at)
-                    }}</span>
+                <!-- Message Status (for own messages) -->
+                <div v-if="isMine(msg)" class="message-status">
+                  <div v-if="msg.is_read">
+                    <i class="pi pi-check-circle text-xs"></i>
                   </div>
-
-                  <!-- Message Text -->
-                  <div class="message-text">{{ msg.content }}</div>
-
-                  <!-- Message Status (for own messages) -->
-                  <div v-if="isMine(msg)" class="message-status">
-                    <div v-if="msg.is_read">
-                      <i class="pi pi-check-circle text-xs"></i>
-                    </div>
-                    <div v-else>
-                      <i class="pi pi-check text-xs"></i>
-                    </div>
+                  <div v-else>
+                    <i class="pi pi-check text-xs"></i>
                   </div>
                 </div>
               </div>
-            </template>
-          </div>
-        </TransitionGroup>
+            </div>
+          </template>
+        </div>
 
         <!-- Empty State -->
         <div v-if="messages.length === 0" class="empty-state">
@@ -114,8 +103,8 @@
           <span>Start the conversation!</span>
         </div>
 
-        <!-- Bottom sentinel for Intersection Observer to detect scroll to bottom -->
-        <div ref="bottomSentinel" class="bottom-sentinel"></div>
+        <!-- Need Fix Intersection Observer -->
+        <div ref="bottomSentinel" class="h-[1px] mt-1 w-full"></div>
       </div>
     </ScrollPanel>
 
@@ -131,15 +120,6 @@
         badgeClass="p-badge-danger"
       />
     </transition>
-    <button
-      @click="scrollToMessage(2984)"
-      icon="pi pi-chevron-down"
-      rounded
-      class="scroll-to-bottom-btn"
-      badgeClass="p-badge-danger"
-    >
-      xasxsa
-    </button>
   </div>
 </template>
 
@@ -158,6 +138,15 @@ import ScrollPanel from "primevue/scrollpanel";
 import Avatar from "primevue/avatar";
 import Button from "primevue/button";
 import { useRoute } from "vue-router";
+import {
+  formatTime,
+  getAvatarColor,
+  getBubbleClass,
+  getScrollContent,
+  isMine,
+  scrollToMessage,
+} from "../composables/helpers";
+
 const props = defineProps({
   messages: {
     type: Array,
@@ -200,10 +189,6 @@ const props = defineProps({
     type: [Number, String],
     default: null, // DM User ID
   },
-  chatType: {
-    type: String,
-    default: "direct", // 'direct' or 'room'
-  },
   // Pagination props
   hasMoreMessages: {
     type: Boolean,
@@ -238,25 +223,12 @@ const topObserver = ref(null); // Observer for loading older messages
 const themeClass = computed(() => `theme-${props.theme}`);
 
 // Helper function to get the scrollable content element (PrimeVue compatibility)
-function getScrollContent() {
-  if (!scrollPanelRef.value?.$el) return null;
-  const el = scrollPanelRef.value.$el;
-  return (
-    el.querySelector(".p-scrollpanel-content-container") ||
-    el.querySelector(".p-scrollpanel-content") ||
-    el.querySelector("[data-pc-section='content']") ||
-    el.querySelector(".p-scrollpanel-wrapper")
-  );
-}
 
 // Display unread count - use local count that decreases as messages are read
 const displayUnreadCount = computed(() => {
   // Show new messages count if higher, otherwise show remaining unread
   return newMessagesCount.value;
 });
-function isMine(msg) {
-  return msg.sender_id === authStore.user?.id;
-}
 
 function getMessageClass(msg) {
   return [
@@ -265,104 +237,72 @@ function getMessageClass(msg) {
   ];
 }
 
-function getBubbleClass(msg) {
-  return [
-    `bubble-${props.bubbleStyle}`,
-    `color-${props.myMessageColor}`,
-    isMine(msg) ? "mine" : "theirs",
-  ];
-}
+async function scrollToBottom(smooth = true) {
+  if (!scrollPanelRef.value) {
+    console.warn("scrollToBottom: scrollPanelRef is not available");
+    return;
+  }
+  await nextTick();
 
-function getAvatarColor(username) {
-  if (!username) return "#6366f1";
-  const colors = [
-    "#6366f1",
-    "#8b5cf6",
-    "#ec4899",
-    "#f43f5e",
-    "#f97316",
-    "#eab308",
-    "#22c55e",
-    "#14b8a6",
-    "#06b6d4",
-    "#3b82f6",
-  ];
-  const index = username.charCodeAt(0) % colors.length;
-  return colors[index];
-}
+  const scrollContent = getScrollContent(scrollPanelRef);
 
-function formatTime(timestamp) {
-  if (!timestamp) return "";
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+  if (scrollContent) {
+    console.log("scrollToBottom: scrolling to", scrollContent.scrollHeight);
+    scrollContent.scrollTo({
+      top: scrollContent.scrollHeight,
+      behavior: smooth ? "smooth" : "instant",
+    });
+    // Reset state when scrolling to bottom
+    isAtBottom.value = true;
+    showScrollButton.value = false;
+    newMessagesCount.value = 0;
+    localUnreadCount.value = 0;
 
-function scrollToBottom(smooth = true) {
-  nextTick(() => {
-    if (!scrollPanelRef.value) {
-      console.warn("scrollToBottom: scrollPanelRef is not available");
-      return;
+    // Emit mark all as read when scrolling to bottom
+    if (props.unreadCount > 0) {
+      emit("markAllRead");
     }
 
-    const scrollContent = getScrollContent();
-    if (scrollContent) {
-      console.log("scrollToBottom: scrolling to", scrollContent.scrollHeight);
-      scrollContent.scrollTo({
-        top: scrollContent.scrollHeight,
-        behavior: smooth ? "smooth" : "instant",
-      });
-      // Reset state when scrolling to bottom
-      isAtBottom.value = true;
-      showScrollButton.value = false;
-      newMessagesCount.value = 0;
-      localUnreadCount.value = 0;
-
-      // Emit mark all as read when scrolling to bottom
-      if (props.unreadCount > 0) {
-        emit("markAllRead");
-      }
-
-      // Clear saved scroll position since user is at bottom
-      if (props.chatId) {
-        db.clearScrollPosition(props.chatId, authStore.user?.id).catch((err) =>
-          console.error("Failed to clear scroll position:", err),
-        );
-      }
-    } else {
-      // console.warn("scrollToBottom: could not find scroll content element");
+    // Clear saved scroll position since user is at bottom
+    if (props.chatId) {
+      db.clearScrollPosition(props.chatId, authStore.user?.id).catch((err) =>
+        console.error("Failed to clear scroll position:", err),
+      );
     }
-  });
+  } else {
+    console.warn("scrollToBottom: could not find scroll content element");
+  }
 }
 
 function handleScroll(event) {
-  nextTick(() => {
-    const scrollContent = getScrollContent();
-    if (scrollContent) {
-      const { scrollTop, scrollHeight, clientHeight } = scrollContent;
-      const hasScrollableContent = scrollHeight > clientHeight;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+  const scrollContent = getScrollContent(scrollPanelRef);
+  if (scrollContent) {
+    const { scrollTop, scrollHeight, clientHeight } = scrollContent;
+    const hasScrollableContent = scrollHeight > clientHeight;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
 
-      // Consider "at bottom" if within 100px or no scrollable content
-      console.log(distanceFromBottom, "distanceFromBottom");
+    // Consider "at bottom" if within 100px or no scrollable content
+    console.log(distanceFromBottom, "distanceFromBottom");
 
-      isAtBottom.value = !hasScrollableContent || distanceFromBottom < 100;
-      showScrollButton.value = hasScrollableContent && !isAtBottom.value;
+    isAtBottom.value = !hasScrollableContent || distanceFromBottom < 100;
+    showScrollButton.value = hasScrollableContent && !isAtBottom.value;
 
-      // Clear new messages count when user scrolls to bottom
-      if (isAtBottom.value) {
-        console.log(
-          isAtBottom.value,
-          "User is at bottom, clearing new messages count",
-        );
-        newMessagesCount.value = 0;
-      }
-
-      // Load more messages when scrolling near the top (infinite scroll)
-      if (scrollTop < 100 && props.hasMoreMessages && !props.isLoadingMore) {
-        emit("loadMore");
-      }
+    // Clear new messages count when user scrolls to bottom
+    if (isAtBottom.value) {
+      console.log(
+        isAtBottom.value,
+        "User is at bottom, clearing new messages count",
+      );
+      newMessagesCount.value = 0;
     }
-  });
+
+    // Load more messages when scrolling near the top (infinite scroll)
+    if (scrollTop < 100 && props.hasMoreMessages && !props.isLoadingMore) {
+      setTimeout(() => {
+        emit("loadMore");
+      }, 1000);
+    }
+  }
 }
 
 /**
@@ -370,7 +310,7 @@ function handleScroll(event) {
  * This will be used to restore scroll position when re-entering the chat
  */
 function getVisibleTopMessageId() {
-  const scrollContent = getScrollContent();
+  const scrollContent = getScrollContent(scrollPanelRef);
   if (!scrollContent) return null;
 
   const scrollTop = scrollContent.scrollTop;
@@ -397,30 +337,6 @@ function getVisibleTopMessageId() {
 /**
  * Scroll to a specific message by its ID (like anchor navigation)
  */
-async function scrollToMessage(messageId, smooth = true) {
-  if (!messageId) return;
-  const id = String(messageId).replace("#", "");
-  const scrollContent = getScrollContent();
-  if (!scrollContent) return;
-  let attempt = 0;
-  while (attempt < 10) {
-    await nextTick();
-    const el = scrollContent.querySelector(`[data-message-id="${id}"]`);
-    if (el) {
-      const containerRect = scrollContent.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const offset = elRect.top - containerRect.top + scrollContent.scrollTop - 16;
-      scrollContent.scrollTo({
-        top: Math.max(0, offset),
-        behavior: smooth ? "smooth" : "instant",
-      });
-      return;
-    }
-    await new Promise(r => setTimeout(r, 50));
-    attempt++;
-  }
-  console.warn("scrollToMessage: Could not find message after retries", id);
-}
 
 /**
  * Save current scroll position to IndexedDB
@@ -490,7 +406,7 @@ function setupMessageObserver() {
     messageObserver.value.disconnect();
   }
 
-  const scrollContent = getScrollContent();
+  const scrollContent = getScrollContent(scrollPanelRef);
   if (!scrollContent) {
     console.warn("setupMessageObserver: could not find scroll content");
     return;
@@ -501,6 +417,7 @@ function setupMessageObserver() {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           const messageId = entry.target.getAttribute("data-message-id");
+
           if (messageId && !readMessageIds.value.has(messageId)) {
             // Find the message to check if it's not our own message
             const msg = props.messages.find(
@@ -557,7 +474,7 @@ function setupBottomObserver() {
     bottomObserver.value.disconnect();
   }
 
-  const scrollContent = getScrollContent();
+  const scrollContent = getScrollContent(scrollPanelRef);
   if (!scrollContent || !bottomSentinel.value) {
     console.warn(
       "setupBottomObserver: could not find scroll content or bottom sentinel",
@@ -618,7 +535,7 @@ function setupTopObserver() {
     topObserver.value.disconnect();
   }
 
-  const scrollContent = getScrollContent();
+  const scrollContent = getScrollContent(scrollPanelRef);
   if (!scrollContent || !topSentinel.value) {
     console.warn(
       "setupTopObserver: could not find scroll content or top sentinel",
@@ -636,14 +553,16 @@ function setupTopObserver() {
           !props.isLoadingMore
         ) {
           console.log("Top sentinel visible - loading older messages...");
-          emit("loadMore");
+          setTimeout(() => {
+            emit("loadMore");
+          }, 1000);
         }
       });
     },
     {
       root: scrollContent,
-      threshold: 0.3, // Trigger when 30% of sentinel is visible
-      rootMargin: "300px 0px 0px 0px", // Trigger 300px before reaching top
+      threshold: 0.1, // Trigger when 10% of sentinel is visible
+      rootMargin: "900px 0px 0px 0px", // Trigger 300px before reaching top
     },
   );
 
@@ -661,6 +580,8 @@ function cleanupTopObserver() {
 }
 // Initial state - check if content is scrollable
 onMounted(async () => {
+  console.log("onmounted works!!!!");
+
   lastMessageCount.value = props.messages.length;
 
   // If messages already exist on mount, handle initial scroll
@@ -668,26 +589,24 @@ onMounted(async () => {
     initialScrollDone.value = true;
 
     // Check after content renders
-    nextTick(async () => {
-      // Always setup Intersection Observer for tracking read messages
-      setupMessageObserver();
+    // Always setup Intersection Observer for tracking read messages
+    setupMessageObserver();
 
-      // Setup bottom observer for reliable "at bottom" detection
-      setupBottomObserver();
+    // Setup bottom observer for reliable "at bottom" detection
+    setupBottomObserver();
 
-      // Setup top observer for loading older messages
-      setupTopObserver();
-    });
+    // Setup top observer for loading older messages
+    setupTopObserver();
     // Priority 0: Check for saved scroll position from IndexedDB
-    const savedMessageId = await loadSavedScrollPosition();
+    const savedMessageId = loadSavedScrollPosition();
     console.log(savedMessageId, "savedMessageId");
 
     if (savedMessageId) {
       savedScrollMessageId.value = savedMessageId;
-      await scrollToMessage(savedMessageId, false);
+      scrollToMessage(savedMessageId, false, scrollPanelRef);
       console.log('scrollToMessage(savedMessageId, "false");');
     } else if (props.firstUnreadMessageId) {
-      await scrollToMessage(props.firstUnreadMessageId, false);
+      scrollToMessage(props.firstUnreadMessageId, false, scrollPanelRef);
       console.log('scrollToMessage(props.firstUnreadMessageId, "false");');
     } else {
       // No saved position and no new messages divider - scroll to bottom
@@ -695,6 +614,7 @@ onMounted(async () => {
       scrollToBottom(false);
     }
   }
+
   // If no messages yet, the watcher will handle scroll when messages load
 });
 
@@ -791,7 +711,7 @@ watch(
 
 // Check if content is scrollable and update button visibility
 function checkScrollState() {
-  const scrollContent = getScrollContent();
+  const scrollContent = getScrollContent(scrollPanelRef);
   if (scrollContent) {
     const { scrollTop, scrollHeight, clientHeight } = scrollContent;
     const hasScrollableContent = scrollHeight > clientHeight;
@@ -810,22 +730,19 @@ watch(
     if (newLength[0] === oldLength[0]) return;
     // Handle initial messages load (when messages go from 0 to some value)
     if (oldLength[0] === 0 && newLength[0] > 0) {
-      await nextTick();
       // Wait for DOM to update
-      // setTimeout(async () => {
-      //        // Setup observers after initial scroll
-      //   setupMessageObserver();
-      //   setupBottomObserver();
-      //   setupTopObserver();
-      // }, 50);
+      setupMessageObserver();
+      setupBottomObserver();
+      setupTopObserver();
       // Priority 0: Check for saved scroll position
       const savedMessageId = await loadSavedScrollPosition();
       if (props.firstUnreadMessageId) {
-        await scrollToMessage(props.firstUnreadMessageId, false);
+        scrollToMessage(props.firstUnreadMessageId, false, scrollPanelRef);
         console.log("scrollToMessage QQQ ", props.firstUnreadMessageId);
+        return;
       } else if (savedMessageId && props.firstUnreadMessageId) {
         savedScrollMessageId.value = savedMessageId;
-        scrollToMessage(savedMessageId, false);
+        scrollToMessage(savedMessageId, false, scrollPanelRef);
         console.log("scrollToMessage(props.firstUnreadMessageId,  uuuu ");
       } else {
         console.log("scrollToBottom(false); A");
@@ -841,9 +758,9 @@ watch(
       const isOwnMessage = lastMessage && isMine(lastMessage);
       console.log(isOwnMessage, "isOwnMessage");
 
-      if (isAtBottom.value || isOwnMessage) {
+      if (isAtBottom.value && isOwnMessage) {
         console.log("scrollToBottom(false); C");
-        scrollToBottom(isOwnMessage ? false : true);
+        scrollToBottom(true);
       } else {
         // User is scrolled up, increment counter and show button
         showScrollButton.value = true;
@@ -928,6 +845,7 @@ defineExpose({
 
 .chat-container :deep(.p-scrollpanel-content-container) {
   height: 100%;
+  padding-bottom: 0 !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
 }
@@ -1054,15 +972,6 @@ defineExpose({
   height: 1px;
   width: 100%;
   pointer-events: none;
-}
-
-.top-sentinel {
-  min-height: 20px;
-  margin-bottom: 8px;
-}
-
-.bottom-sentinel {
-  margin-top: 8px;
 }
 
 /* Message Wrapper */
@@ -1236,12 +1145,5 @@ defineExpose({
 
 .theme-bubble .message-content {
   @apply rounded-3xl;
-}
-
-/* Bottom sentinel - invisible element at bottom of messages */
-.bottom-sentinel {
-  height: 1px;
-  width: 100%;
-  pointer-events: none;
 }
 </style>

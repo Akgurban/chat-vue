@@ -19,7 +19,6 @@
           }}</span>
         </div>
         <div class="flex items-center gap-2">
-          <NotificationBell />
           <Button
             icon="pi pi-cog"
             text
@@ -32,20 +31,20 @@
 
       <!-- Search -->
       <div class="sidebar-search">
-        <IconField>
-          <InputIcon class="pi pi-search" />
+        <div class="flex items-center">
+          <Search />
           <InputText
             v-model="searchQuery"
             placeholder="Search chats or users..."
             class="w-full"
             @input="handleSearchInput"
           />
-          <InputIcon
+          <Search
             v-if="searchQuery"
             class="pi pi-times cursor-pointer"
             @click="clearSearch"
           />
-        </IconField>
+        </div>
       </div>
 
       <!-- Search Results (Users from API) -->
@@ -228,8 +227,9 @@ import Badge from "primevue/badge";
 import InputText from "primevue/inputtext";
 import IconField from "primevue/iconfield";
 import InputIcon from "primevue/inputicon";
+import { Search } from "@lucide/vue";
+
 import ConnectionStatus from "../components/ConnectionStatus.vue";
-import NotificationBell from "../components/NotificationBell.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -270,7 +270,7 @@ function registerCallback(name, callback) {
   childCallbacks.value[name] = callback;
 
   // If child registers onPageRefresh and we have a pending refresh, call it immediately
-  if (callback && pendingPageRefresh.value) {
+  if (name === "onPageRefresh" && callback && pendingPageRefresh.value) {
     callback();
     pendingPageRefresh.value = false;
   }
