@@ -3,6 +3,7 @@ import { ref, computed } from "vue";
 import { useAuthStore } from "./auth";
 import { useWebSocketStore } from "./websocket";
 import * as db from "../utils/indexedDB";
+import router from "../router";
 
 export const useChatsStore = defineStore("chats", () => {
   const authStore = useAuthStore();
@@ -61,6 +62,17 @@ export const useChatsStore = defineStore("chats", () => {
       }
     } catch (err) {
       console.error("Failed to fetch chats:", err);
+
+      // Handle 401 Unauthorized or invalid/expired token - redirect to login
+      if (
+        err.status === 401 ||
+        err.message?.includes("401") ||
+        err.message?.includes("Invalid or expired token")
+      ) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        router.push("/login");
+      }
     } finally {
       loading.value = false;
     }

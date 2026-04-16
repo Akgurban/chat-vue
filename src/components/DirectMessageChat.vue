@@ -35,13 +35,10 @@
       <MessageList
         ref="messageListRef"
         :messages="chatStore.dmMessages"
-        :theme="chatSettings.theme"
-        :bubbleStyle="chatSettings.bubbleStyle"
         :myMessageColor="chatSettings.myMessageColor"
         :showAvatars="chatSettings.showAvatars"
         :unreadCount="currentChatUnread"
-        :firstUnreadId="firstUnreadMessageId"
-        :firstNewMessageId="chatStore.firstNewDmMessageId"
+        :firstUnreadMessageId="chatStore.firstUnreadMessageId"
         chatType="direct"
         :chatId="chatStore.currentDmUserId"
         :hasMoreMessages="chatStore.hasMoreMessages"
@@ -116,6 +113,8 @@ async function onPageRefresh() {
 
   nextTick(() => {
     setTimeout(() => {
+      console.log("scrollToBottom(false); D");
+
       messageListRef.value?.scrollToBottom(false);
     }, 100);
   });
