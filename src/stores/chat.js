@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useAuthStore } from "./auth";
 import { useWebSocketStore } from "./websocket";
 import { useNotificationStore } from "./notifications";
@@ -34,6 +34,7 @@ export const useChatStore = defineStore("chat", () => {
   const currentDmUsername = ref("");
   const dmMessages = ref([]);
   const typingUser = ref("");
+  const firstUnreadMessageId = ref(null);
   const chatView = ref("default"); // 'default', 'dm'
 
   // Pagination state
@@ -116,7 +117,6 @@ export const useChatStore = defineStore("chat", () => {
       // Load from cache first for instant display
       try {
         const cachedMessages = await db.getMessagesByDM(currentUserId, userId);
-        console.log(cachedMessages, "cachedMessages");
 
         if (cachedMessages.length > 0) {
           dmMessages.value = cachedMessages;
@@ -131,7 +131,6 @@ export const useChatStore = defineStore("chat", () => {
               totalCount.value = pageCache.meta.total_count || 0;
               hasMoreMessages.value = page < totalPages.value;
             }
-            console.log("Page 1 served from cache");
             return;
           }
         }
@@ -477,6 +476,15 @@ export const useChatStore = defineStore("chat", () => {
     toastInstance = toast;
   }
 
+  watch(dmMessages, (newMessages) => {
+    newMessages.find((msg) => {
+      if (!msg.is_read) {
+        firstUnreadMessageId.value = msg.id;
+        return true; // Stop after finding the first unread message
+      }
+    });
+  });
+
   async function clearChatMessages(chatId) {
     try {
       const currentUserId = authStore.user?.id;
@@ -527,6 +535,7 @@ export const useChatStore = defineStore("chat", () => {
 
   return {
     users,
+    firstUnreadMessageId,
     currentDmUserId,
     currentDmUsername,
     dmMessages,

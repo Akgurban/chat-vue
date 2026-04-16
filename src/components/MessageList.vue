@@ -38,7 +38,9 @@
 
             <!-- Unread divider -->
             <div
-              v-if="msg.id === firstUnreadId && msg.id !== firstNewMessageId"
+              v-if="
+                msg.id === firstUnreadMessageId && msg.id !== firstNewMessageId
+              "
               class="unread-divider"
             >
               <span>Unread messages</span>
@@ -129,6 +131,15 @@
         badgeClass="p-badge-danger"
       />
     </transition>
+    <button
+      @click="scrollToMessage(2984)"
+      icon="pi pi-chevron-down"
+      rounded
+      class="scroll-to-bottom-btn"
+      badgeClass="p-badge-danger"
+    >
+      xasxsa
+    </button>
   </div>
 </template>
 
@@ -146,8 +157,7 @@ import * as db from "../utils/indexedDB";
 import ScrollPanel from "primevue/scrollpanel";
 import Avatar from "primevue/avatar";
 import Button from "primevue/button";
-import { IconField } from "primevue";
-
+import { useRoute } from "vue-router";
 const props = defineProps({
   messages: {
     type: Array,
@@ -177,7 +187,7 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
-  firstUnreadId: {
+  firstUnreadMessageId: {
     type: [Number, String],
     default: null,
   },
@@ -242,7 +252,7 @@ function getScrollContent() {
 // Display unread count - use local count that decreases as messages are read
 const displayUnreadCount = computed(() => {
   // Show new messages count if higher, otherwise show remaining unread
-  return Math.max(newMessagesCount.value, localUnreadCount.value);
+  return newMessagesCount.value;
 });
 function isMine(msg) {
   return msg.sender_id === authStore.user?.id;
@@ -319,25 +329,8 @@ function scrollToBottom(smooth = true) {
         );
       }
     } else {
-      console.warn("scrollToBottom: could not find scroll content element");
+      // console.warn("scrollToBottom: could not find scroll content element");
     }
-  });
-}
-
-function scrollToFirstUnread() {
-  nextTick(() => {
-    const scrollContent = getScrollContent();
-    if (scrollContent && props.firstUnreadId) {
-      const unreadElement = scrollContent.querySelector(
-        `[data-message-id="${props.firstUnreadId}"]`,
-      );
-      if (unreadElement) {
-        unreadElement.scrollIntoView({ behavior: "smooth", block: "center" });
-        return;
-      }
-    }
-    // Fallback to bottom if no unread found
-    scrollToBottom();
   });
 }
 
@@ -402,25 +395,31 @@ function getVisibleTopMessageId() {
 }
 
 /**
- * Scroll to a specific message by its ID
+ * Scroll to a specific message by its ID (like anchor navigation)
  */
-function scrollToMessage(messageId, behavior = "instant") {
-  nextTick(() => {
-    if (!messageId) return;
-
-    const scrollContent = getScrollContent();
-    if (!scrollContent) return;
-
-    const messageElement = scrollContent.querySelector(
-      `[data-message-id="${messageId}"]`,
-    );
-
-    if (messageElement) {
-      messageElement.scrollIntoView({ behavior, block: "start" });
-      showScrollButton.value = true;
-      isAtBottom.value = false;
+async function scrollToMessage(messageId, smooth = true) {
+  if (!messageId) return;
+  const id = String(messageId).replace("#", "");
+  const scrollContent = getScrollContent();
+  if (!scrollContent) return;
+  let attempt = 0;
+  while (attempt < 10) {
+    await nextTick();
+    const el = scrollContent.querySelector(`[data-message-id="${id}"]`);
+    if (el) {
+      const containerRect = scrollContent.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const offset = elRect.top - containerRect.top + scrollContent.scrollTop - 16;
+      scrollContent.scrollTo({
+        top: Math.max(0, offset),
+        behavior: smooth ? "smooth" : "instant",
+      });
+      return;
     }
-  });
+    await new Promise(r => setTimeout(r, 50));
+    attempt++;
+  }
+  console.warn("scrollToMessage: Could not find message after retries", id);
 }
 
 /**
@@ -670,50 +669,31 @@ onMounted(async () => {
 
     // Check after content renders
     nextTick(async () => {
-      setTimeout(async () => {
-        // Priority 0: Check for saved scroll position from IndexedDB
-        const savedMessageId = await loadSavedScrollPosition();
+      // Always setup Intersection Observer for tracking read messages
+      setupMessageObserver();
 
-        if (savedMessageId) {
-          console.log(
-            savedMessageId,
-            "restoring scroll position to saved message ID",
-          );
+      // Setup bottom observer for reliable "at bottom" detection
+      setupBottomObserver();
 
-          savedScrollMessageId.value = savedMessageId;
-          scrollToMessage(savedMessageId, "instant");
-        } else if (props.firstNewMessageId) {
-          // Priority 1: If there's a "new messages" divider, scroll to it
-          const scrollContent = getScrollContent();
-          const dividerElement = scrollContent?.querySelector(
-            "[data-new-messages-divider]",
-          );
-
-          if (dividerElement) {
-            dividerElement.scrollIntoView({
-              behavior: "instant",
-              block: "start",
-            });
-            showScrollButton.value = true;
-            isAtBottom.value = false;
-          } else {
-            scrollToBottom(false);
-          }
-        } else {
-          // No saved position and no new messages divider - scroll to bottom
-          scrollToBottom(false);
-        }
-
-        // Always setup Intersection Observer for tracking read messages
-        setupMessageObserver();
-
-        // Setup bottom observer for reliable "at bottom" detection
-        setupBottomObserver();
-
-        // Setup top observer for loading older messages
-        setupTopObserver();
-      }, 150);
+      // Setup top observer for loading older messages
+      setupTopObserver();
     });
+    // Priority 0: Check for saved scroll position from IndexedDB
+    const savedMessageId = await loadSavedScrollPosition();
+    console.log(savedMessageId, "savedMessageId");
+
+    if (savedMessageId) {
+      savedScrollMessageId.value = savedMessageId;
+      await scrollToMessage(savedMessageId, false);
+      console.log('scrollToMessage(savedMessageId, "false");');
+    } else if (props.firstUnreadMessageId) {
+      await scrollToMessage(props.firstUnreadMessageId, false);
+      console.log('scrollToMessage(props.firstUnreadMessageId, "false");');
+    } else {
+      // No saved position and no new messages divider - scroll to bottom
+      console.log("scrollToBottom(false); B");
+      scrollToBottom(false);
+    }
   }
   // If no messages yet, the watcher will handle scroll when messages load
 });
@@ -822,73 +802,50 @@ function checkScrollState() {
     showScrollButton.value = hasScrollableContent && !isAtBottom.value;
   }
 }
-
+const route = useRoute();
 // When new messages arrive
 watch(
-  () => props.messages.length,
+  () => [props.messages.length, route.params.userId],
   async (newLength, oldLength) => {
-    // Skip if length didn't actually change (shouldn't happen, but safety check)
-
-    if (newLength === oldLength) return;
-    console.log(newLength, oldLength, "initialScrollDone.value");
-
+    if (newLength[0] === oldLength[0]) return;
     // Handle initial messages load (when messages go from 0 to some value)
-    if (oldLength === 0 && newLength > 0) {
-      console.log(newLength, oldLength, "break2");
-
-      // Wait for DOM to update
+    if (oldLength[0] === 0 && newLength[0] > 0) {
       await nextTick();
-      setTimeout(async () => {
-        // Priority 0: Check for saved scroll position
-        const savedMessageId = await loadSavedScrollPosition();
-        if (savedMessageId) {
-          savedScrollMessageId.value = savedMessageId;
-          scrollToMessage(savedMessageId, "instant");
-        } else if (props.firstNewMessageId) {
-          // Priority 1: Scroll to new messages divider
-          const scrollContent = getScrollContent();
-          const dividerElement = scrollContent?.querySelector(
-            "[data-new-messages-divider]",
-          );
-          if (dividerElement) {
-            dividerElement.scrollIntoView({
-              behavior: "instant",
-              block: "start",
-            });
-            showScrollButton.value = true;
-            isAtBottom.value = false;
-          } else {
-            scrollToBottom(true);
-          }
-        } else {
-          // No saved position - scroll to bottom
-          scrollToBottom(true);
-        }
+      // Wait for DOM to update
+      // setTimeout(async () => {
+      //        // Setup observers after initial scroll
+      //   setupMessageObserver();
+      //   setupBottomObserver();
+      //   setupTopObserver();
+      // }, 50);
+      // Priority 0: Check for saved scroll position
+      const savedMessageId = await loadSavedScrollPosition();
+      if (props.firstUnreadMessageId) {
+        await scrollToMessage(props.firstUnreadMessageId, false);
+        console.log("scrollToMessage QQQ ", props.firstUnreadMessageId);
+      } else if (savedMessageId && props.firstUnreadMessageId) {
+        savedScrollMessageId.value = savedMessageId;
+        scrollToMessage(savedMessageId, false);
+        console.log("scrollToMessage(props.firstUnreadMessageId,  uuuu ");
+      } else {
+        console.log("scrollToBottom(false); A");
 
-        // Setup observers after initial scroll
-        setupMessageObserver();
-        setupBottomObserver();
-        setupTopObserver();
-      }, 50);
-      return;
+        scrollToBottom(false);
+      }
     }
-
     // Handle subsequent new messages (not initial load)
-    if (newLength > oldLength) {
+    if (newLength[0] > oldLength[0]) {
       // Check if the new message is our own (sent by us)
       // In that case, we already scrolled when sending, so just ensure we stay at bottom
       const lastMessage = props.messages[props.messages.length - 1];
       const isOwnMessage = lastMessage && isMine(lastMessage);
+      console.log(isOwnMessage, "isOwnMessage");
 
       if (isAtBottom.value || isOwnMessage) {
-        // If user was at bottom OR it's our own message, scroll to new message
-        // Use nextTick to ensure DOM is updated first
-        await nextTick();
-
+        console.log("scrollToBottom(false); C");
         scrollToBottom(isOwnMessage ? false : true);
       } else {
         // User is scrolled up, increment counter and show button
-        newMessagesCount.value += newLength - oldLength;
         showScrollButton.value = true;
       }
     }
@@ -1115,10 +1072,6 @@ defineExpose({
 
 .message-wrapper.mine {
   @apply flex justify-end;
-}
-
-.message-wrapper.theirs {
-  @apply flex justify-start;
 }
 
 .message-wrapper.system {
