@@ -7,9 +7,7 @@
     >
       <div ref="messagesContainer" class="p-3">
         <!-- Top Sentinel - triggers loading older messages -->
-        <div ref="topSentinel" class="scroll-sentinel min-h-5 mb-5 bg-red-500">
-          {{ isLoadingMore }} Bug: Top and bottom need configured add loading
-          ...
+        <div ref="topSentinel" class="scroll-sentinel min-h-5 mb-5">
           <div v-if="isLoadingMore" class="loading-more">
             <i class="pi pi-spin pi-spinner"></i>
             <span>Loading older messages...</span>
@@ -39,21 +37,12 @@
 
           <!-- Unread divider -->
           <div
-            v-if="
-              msg.id === firstUnreadMessageId && msg.id !== firstNewMessageId
-            "
+            v-if="msg.id === firstUnreadMessageId && !isMine(msg)"
             class="unread-divider"
           >
             <span>Unread messages</span>
           </div>
 
-          <!-- System Message -->
-          <template v-if="msg.type === 'system'">
-            <div class="system-message">
-              <i class="pi pi-info-circle mr-1"></i>
-              {{ msg.content }}
-            </div>
-          </template>
           <!-- System Message -->
           <template v-if="msg.type === 'system'">
             <div class="system-message">
@@ -114,8 +103,8 @@
           <span>Start the conversation!</span>
         </div>
 
-        <!-- Bottom sentinel for Intersection Observer to detect scroll to bottom -->
-        <div ref="bottomSentinel" class="h-5 mt-1 w-full bg-blue-500"></div>
+        <!-- Need Fix Intersection Observer -->
+        <div ref="bottomSentinel" class="h-[1px] mt-1 w-full"></div>
       </div>
     </ScrollPanel>
 
@@ -248,15 +237,14 @@ function getMessageClass(msg) {
   ];
 }
 
-function scrollToBottom(smooth = true) {
-  console.log("scrollToBottomscrollToBottomscrollToBottomscrollToBottom");
-
+async function scrollToBottom(smooth = true) {
   if (!scrollPanelRef.value) {
     console.warn("scrollToBottom: scrollPanelRef is not available");
     return;
   }
+  await nextTick();
+
   const scrollContent = getScrollContent(scrollPanelRef);
-  console.log(scrollContent, scrollPanelRef, "scrollContent--scrollPanelRef");
 
   if (scrollContent) {
     console.log("scrollToBottom: scrolling to", scrollContent.scrollHeight);
@@ -282,7 +270,7 @@ function scrollToBottom(smooth = true) {
       );
     }
   } else {
-    // console.warn("scrollToBottom: could not find scroll content element");
+    console.warn("scrollToBottom: could not find scroll content element");
   }
 }
 
@@ -429,6 +417,7 @@ function setupMessageObserver() {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           const messageId = entry.target.getAttribute("data-message-id");
+
           if (messageId && !readMessageIds.value.has(messageId)) {
             // Find the message to check if it's not our own message
             const msg = props.messages.find(
@@ -572,8 +561,8 @@ function setupTopObserver() {
     },
     {
       root: scrollContent,
-      threshold: 0.3, // Trigger when 30% of sentinel is visible
-      rootMargin: "300px 0px 0px 0px", // Trigger 300px before reaching top
+      threshold: 0.1, // Trigger when 10% of sentinel is visible
+      rootMargin: "900px 0px 0px 0px", // Trigger 300px before reaching top
     },
   );
 
@@ -769,9 +758,9 @@ watch(
       const isOwnMessage = lastMessage && isMine(lastMessage);
       console.log(isOwnMessage, "isOwnMessage");
 
-      if (isAtBottom.value || isOwnMessage) {
+      if (isAtBottom.value && isOwnMessage) {
         console.log("scrollToBottom(false); C");
-        scrollToBottom(isOwnMessage ? false : true);
+        scrollToBottom(true);
       } else {
         // User is scrolled up, increment counter and show button
         showScrollButton.value = true;
@@ -856,6 +845,7 @@ defineExpose({
 
 .chat-container :deep(.p-scrollpanel-content-container) {
   height: 100%;
+  padding-bottom: 0 !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
 }

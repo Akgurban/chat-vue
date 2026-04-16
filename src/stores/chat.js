@@ -6,13 +6,11 @@ import { useNotificationStore } from "./notifications";
 import { useChatsStore } from "./chats";
 import { browserNotifications } from "../utils/notifications";
 import * as db from "../utils/indexedDB";
+import { isMine } from "../composables/helpers";
 
 export const useChatStore = defineStore("chat", () => {
   const authStore = useAuthStore();
   const wsStore = useWebSocketStore();
-
-  // Toast instance - will be set from component
-  let toastInstance = null;
 
   // Notification sound
   const notificationSound = new Audio("/notification.mp3");
@@ -242,6 +240,17 @@ export const useChatStore = defineStore("chat", () => {
     return hasMoreMessages.value;
   }
 
+  function updateToMessageRead(messageId, userId, isRead) {
+    const message = dmMessages.value.find(
+      (m) => m.id === messageId && m.receiver_id === userId,
+    );
+    if (message) {
+      message.is_read = isRead;
+      db.saveMessage(message).catch((err) => {
+        console.error("Failed to update message in IndexedDB:", err);
+      });
+    }
+  }
   function sendDM(content) {
     if (!content || !currentDmUserId.value) return;
 
@@ -376,17 +385,8 @@ export const useChatStore = defineStore("chat", () => {
             // Auto-mark as read since user is viewing this DM
             chatsStore.markDmAsRead(msg.payload.sender_id);
           } else {
-            // Show toast notification for DMs when not in that conversation
-            if (toastInstance && msg.payload.sender_id !== authStore.user?.id) {
+            if (msg.payload.sender_id !== authStore.user?.id) {
               playNotificationSound();
-              toastInstance.add({
-                severity: "info",
-                summary: `Message from ${msg.payload.sender_username || "Someone"}`,
-                detail:
-                  msg.payload.content?.substring(0, 50) +
-                  (msg.payload.content?.length > 50 ? "..." : ""),
-                life: 5000,
-              });
 
               // Show browser notification if tab is not focused
               browserNotifications.showMessageNotification(
@@ -434,16 +434,7 @@ export const useChatStore = defineStore("chat", () => {
         // Handle real-time notifications
         const notificationStore = useNotificationStore();
         notificationStore.handleWebSocketNotification(msg.payload);
-        // Show toast for the notification
-        if (toastInstance) {
-          playNotificationSound();
-          toastInstance.add({
-            severity: "info",
-            summary: msg.payload.title || "New Notification",
-            detail: msg.payload.body || "",
-            life: 5000,
-          });
-        }
+        playNotificationSound();
         break;
 
       case "message_delivered":
@@ -472,18 +463,25 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  function setToastInstance(toast) {
-    toastInstance = toast;
-  }
-
-  watch(dmMessages, (newMessages) => {
-    newMessages.find((msg) => {
-      if (!msg.is_read) {
-        firstUnreadMessageId.value = msg.id;
-        return true; // Stop after finding the first unread message
-      }
-    });
-  });
+  watch(
+    dmMessages,
+    (newMessages) => {
+      const swappedMessages = newMessages.slice().reverse(); // Check from newest to oldest
+      newMessages.find((msg) => {
+        if (
+          !msg.is_read &&
+          swappedMessages[0].is_read === false &&
+          !isMine(msg)
+        ) {
+          firstUnreadMessageId.value = msg.id;
+          return true; // Stop after finding the first unread message
+        } else {
+          firstUnreadMessageId.value = null;
+        }
+      });
+    },
+    { deep: true },
+  );
 
   async function clearChatMessages(chatId) {
     try {
@@ -548,6 +546,7 @@ export const useChatStore = defineStore("chat", () => {
     hasMoreMessages,
     isLoadingMore,
     // Functions
+    updateToMessageRead,
     clearChatMessages,
     sendTyping,
     openDM,
@@ -556,7 +555,6 @@ export const useChatStore = defineStore("chat", () => {
     loadMoreMessages,
     sendDM,
     handleWebSocketMessage,
-    setToastInstance,
     reset,
   };
 });
