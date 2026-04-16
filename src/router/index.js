@@ -1,9 +1,10 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import DMView from "../views/DMView.vue";
+import DefaultView from "../components/DefaultView.vue";
+import ChatView from "../views/ChatView.vue";
 
 // Lazy-loaded views
-const ChatView = () => import("../views/ChatView.vue");
 const LoginView = () => import("../views/LoginView.vue");
 
 const routes = [
@@ -20,7 +21,7 @@ const routes = [
       {
         path: "",
         name: "home",
-        component: () => import("../components/DefaultView.vue"),
+        component: DefaultView,
       },
       {
         path: "dm/:userId",

@@ -39,7 +39,6 @@
         :showAvatars="chatSettings.showAvatars"
         :unreadCount="currentChatUnread"
         :firstUnreadMessageId="chatStore.firstUnreadMessageId"
-        chatType="direct"
         :chatId="chatStore.currentDmUserId"
         :hasMoreMessages="chatStore.hasMoreMessages"
         :isLoadingMore="chatStore.isLoadingMore"
@@ -100,7 +99,7 @@ const clearing = ref(false);
 async function onParentRouteChange() {
   console.log("Parent route changed! Do something here...");
   // Add your logic here - this is called from ChatView
-  await chatStore.getDMMessages(route.params.userId, 1, 25);
+  chatStore.getDMMessages(route.params.userId, 1, 25);
 }
 
 // Function that parent will call when page is refreshed (F5) or URL is pasted/navigated directly
@@ -111,13 +110,8 @@ async function onPageRefresh() {
   await chatStore.clearAllChatMessages(); // Clear messages to trigger re-fetch in ChatView
   await chatStore.getDMMessages(route.params.userId, 1, 25);
 
-  nextTick(() => {
-    setTimeout(() => {
-      console.log("scrollToBottom(false); D");
-
-      messageListRef.value?.scrollToBottom(false);
-    }, 100);
-  });
+  console.log("scrollToBottom(false); D");
+  messageListRef.value?.scrollToBottom(false);
 }
 // Register callbacks with parent on mount
 onMounted(async () => {
@@ -224,7 +218,7 @@ function handleSend() {
  * Called when user scrolls to the top
  */
 async function handleLoadMore() {
-  console.log("xasxsa");
+  console.log("handleLoadMore");
 
   page.value++;
   await chatStore.loadMoreMessages(25);

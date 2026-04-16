@@ -18,7 +18,6 @@
             >
           </div>
           <div class="flex items-center gap-3">
-            <NotificationBell />
             <Button
               @click="handleLogout"
               label="Logout"
@@ -57,7 +56,6 @@ import ConnectionStatus from "./ConnectionStatus.vue";
 import UsersList from "./UsersList.vue";
 import DirectMessageChat from "./DirectMessageChat.vue";
 import DefaultView from "./DefaultView.vue";
-import NotificationBell from "./NotificationBell.vue";
 
 const authStore = useAuthStore();
 const wsStore = useWebSocketStore();
