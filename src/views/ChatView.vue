@@ -151,7 +151,7 @@
               </div>
               <div class="chat-bottom">
                 <span v-if="getTypingUser(chat)" class="typing">
-                  {{ getTypingUser(chat) }} is typing...
+                  ...typing
                 </span>
                 <template v-else-if="chat.last_message">
                   <span
@@ -765,7 +765,13 @@ function formatTime(timestamp) {
 
 .typing {
   color: #22c55e;
-  font-style: italic;
+  font-weight: 600;
+  animation: typing-pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes typing-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.98); }
+  50% { opacity: 1; transform: scale(1); }
 }
 
 .sender {
