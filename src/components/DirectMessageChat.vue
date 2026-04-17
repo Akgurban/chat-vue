@@ -13,7 +13,11 @@
         />
         <div class="header-text">
           <span class="chat-title">{{ displayUsername }}</span>
-          <span class="chat-subtitle">Direct Message</span>
+          <span
+            class="chat-subtitle"
+            :class="{ 'is-typing': chatStore.typingUser }"
+            >{{ chatStatus }}</span
+          >
         </div>
       </div>
       <div class="header-actions">
@@ -102,6 +106,32 @@ async function onParentRouteChange() {
   chatStore.getDMMessages(route.params.userId, 1, 25);
 }
 
+const chatStatus = computed(() => {
+  if (chatStore.typingUser) return "typing...";
+  if (!currentChat.value) return "Offline";
+  if (currentChat.value.is_online) return "Online";
+
+  if (currentChat.value.last_seen_at) {
+    const date = new Date(currentChat.value.last_seen_at);
+    const now = new Date();
+    const diff = now - date;
+
+    if (diff < 60000) return "last seen just now";
+    if (diff < 3600000) {
+      const minutes = Math.floor(diff / 60000);
+      return `last seen ${minutes} minute${minutes > 1 ? "s" : ""} ago`;
+    }
+    if (diff < 86400000 && date.getDate() === now.getDate()) {
+      return `last seen today at ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+    if (diff < 172800000) {
+      return `last seen yesterday at ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+    return `last seen on ${date.toLocaleDateString([], { month: "short", day: "numeric" })}`;
+  }
+
+  return "Offline";
+});
 // Function that parent will call when page is refreshed (F5) or URL is pasted/navigated directly
 async function onPageRefresh() {
   console.log("Page was refreshed or URL was pasted/navigated directly.");
@@ -150,6 +180,18 @@ watch(
     console.log("Route param changed:", oldId, "→", newId);
   },
 );
+
+// Watch for typing
+let lastTypingSent = 0;
+watch(message, (newVal) => {
+  if (newVal.trim()) {
+    const now = Date.now();
+    if (now - lastTypingSent > 2000) {
+      chatStore.sendTyping();
+      lastTypingSent = now;
+    }
+  }
+});
 
 // Get current chat's unread info
 const currentChat = computed(() => {
@@ -322,6 +364,18 @@ async function confirmClearChat() {
 .chat-subtitle {
   font-size: 13px;
   color: #64748b;
+  transition: color 0.2s ease;
+}
+
+.chat-subtitle.is-typing {
+  color: #10b981;
+  font-weight: 600;
+  animation: typing-blink 1.5s infinite ease-in-out;
+}
+
+@keyframes typing-blink {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
 }
 
 .header-actions {

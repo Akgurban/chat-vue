@@ -32,6 +32,7 @@ export const useChatStore = defineStore("chat", () => {
   const currentDmUsername = ref("");
   const dmMessages = ref([]);
   const typingUser = ref("");
+  let typingUserTimeout = null;
   const firstUnreadMessageId = ref(null);
   const chatView = ref("default"); // 'default', 'dm'
 
@@ -289,7 +290,7 @@ export const useChatStore = defineStore("chat", () => {
 
   function sendTyping() {
     if (!currentDmUserId.value) return;
-    wsStore.send("typing", { user_id: currentDmUserId.value });
+    wsStore.send("typing_dm", { receiver_id: currentDmUserId.value });
   }
 
   function handleWebSocketMessage(msg) {
@@ -400,7 +401,7 @@ export const useChatStore = defineStore("chat", () => {
         }
         break;
 
-      case "user_typing":
+      case "user_typing_dm":
         // Update chats store with typing indicator
         chatsStore.setTypingUser(
           msg.payload.user_id,
@@ -414,9 +415,15 @@ export const useChatStore = defineStore("chat", () => {
           msg.payload.user_id !== authStore.user?.id
         ) {
           typingUser.value = msg.payload.username;
-          setTimeout(() => {
+
+          if (typingUserTimeout) {
+            clearTimeout(typingUserTimeout);
+          }
+
+          typingUserTimeout = setTimeout(() => {
             typingUser.value = "";
-          }, 2000);
+            typingUserTimeout = null;
+          }, 5000);
         }
         break;
 
