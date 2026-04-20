@@ -211,17 +211,23 @@ export const useChatsStore = defineStore("chats", () => {
     }
   }
 
+  const typingTimeouts = {}; // { chatKey: timeoutId }
+
   // Handle typing indicator
   function setTypingUser(chatId, username) {
     const key = `dm-${chatId}`;
     typingUsers.value[key] = username;
 
-    // Clear after 3 seconds
-    setTimeout(() => {
-      if (typingUsers.value[key] === username) {
-        delete typingUsers.value[key];
-      }
-    }, 3000);
+    // Clear existing timeout for this chat
+    if (typingTimeouts[key]) {
+      clearTimeout(typingTimeouts[key]);
+    }
+
+    // Clear after 7 seconds
+    typingTimeouts[key] = setTimeout(() => {
+      delete typingUsers.value[key];
+      delete typingTimeouts[key];
+    }, 5000);
   }
 
   // Get typing user for a chat
