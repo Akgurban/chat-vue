@@ -1,13 +1,17 @@
 <template>
   <div class="chat-container" :class="themeClass">
-    <ScrollPanel
-      style="width: 100%; height: 100%"
+    <div
       ref="scrollPanelRef"
+      style="width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden"
       @scroll="handleScroll"
     >
-      <div ref="messagesContainer" class="p-3">
+      <div ref="messagesContainer" class="px-4">
         <!-- Top Sentinel - triggers loading older messages -->
-        <div ref="topSentinel" class="scroll-sentinel min-h-5 mb-5">
+        <div
+          ref="topSentinel"
+          class="scroll-sentinel mb-5"
+          style="min-height: 32px"
+        >
           <div v-if="isLoadingMore" class="loading-more">
             <i class="pi pi-spin pi-spinner"></i>
             <span>Loading older messages...</span>
@@ -106,7 +110,7 @@
         <!-- Need Fix Intersection Observer -->
         <div ref="bottomSentinel" class="h-[1px] mt-1 w-full"></div>
       </div>
-    </ScrollPanel>
+    </div>
 
     <!-- Go to Bottom Button -->
     <transition name="fade">
@@ -134,7 +138,6 @@ import {
 } from "vue";
 import { useAuthStore } from "../stores/auth";
 import * as db from "../utils/indexedDB";
-import ScrollPanel from "primevue/scrollpanel";
 import Avatar from "primevue/avatar";
 import Button from "primevue/button";
 import { useRoute } from "vue-router";
@@ -142,7 +145,6 @@ import {
   formatTime,
   getAvatarColor,
   getBubbleClass,
-  getScrollContent,
   isMine,
   scrollToMessage,
 } from "../composables/helpers";
@@ -244,7 +246,7 @@ async function scrollToBottom(smooth = true) {
   }
   await nextTick();
 
-  const scrollContent = getScrollContent(scrollPanelRef);
+  const scrollContent = scrollPanelRef.value;
 
   if (scrollContent) {
     console.log("scrollToBottom: scrolling to", scrollContent.scrollHeight);
@@ -275,14 +277,11 @@ async function scrollToBottom(smooth = true) {
 }
 
 function handleScroll(event) {
-  const scrollContent = getScrollContent(scrollPanelRef);
+  const scrollContent = scrollPanelRef.value;
   if (scrollContent) {
     const { scrollTop, scrollHeight, clientHeight } = scrollContent;
     const hasScrollableContent = scrollHeight > clientHeight;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-
-    // Consider "at bottom" if within 100px or no scrollable content
-    console.log(distanceFromBottom, "distanceFromBottom");
 
     isAtBottom.value = !hasScrollableContent || distanceFromBottom < 100;
     showScrollButton.value = hasScrollableContent && !isAtBottom.value;
@@ -298,9 +297,8 @@ function handleScroll(event) {
 
     // Load more messages when scrolling near the top (infinite scroll)
     if (scrollTop < 100 && props.hasMoreMessages && !props.isLoadingMore) {
-      setTimeout(() => {
-        emit("loadMore");
-      }, 1000);
+      scrollContent.removeEventListener("scroll", handleScroll);
+      emit("loadMore");
     }
   }
 }
@@ -310,7 +308,7 @@ function handleScroll(event) {
  * This will be used to restore scroll position when re-entering the chat
  */
 function getVisibleTopMessageId() {
-  const scrollContent = getScrollContent(scrollPanelRef);
+  const scrollContent = scrollPanelRef.value;
   if (!scrollContent) return null;
 
   const scrollTop = scrollContent.scrollTop;
@@ -406,7 +404,7 @@ function setupMessageObserver() {
     messageObserver.value.disconnect();
   }
 
-  const scrollContent = getScrollContent(scrollPanelRef);
+  const scrollContent = scrollPanelRef.value;
   if (!scrollContent) {
     console.warn("setupMessageObserver: could not find scroll content");
     return;
@@ -474,7 +472,7 @@ function setupBottomObserver() {
     bottomObserver.value.disconnect();
   }
 
-  const scrollContent = getScrollContent(scrollPanelRef);
+  const scrollContent = scrollPanelRef.value;
   if (!scrollContent || !bottomSentinel.value) {
     console.warn(
       "setupBottomObserver: could not find scroll content or bottom sentinel",
@@ -530,12 +528,14 @@ function cleanupBottomObserver() {
  * Setup Intersection Observer for the top sentinel
  * This triggers loading older messages when user scrolls to top
  */
+const savedScrollHeight = ref(0);
+const savedScrollTop = ref(0);
+
 function setupTopObserver() {
   if (topObserver.value) {
     topObserver.value.disconnect();
   }
-
-  const scrollContent = getScrollContent(scrollPanelRef);
+  const scrollContent = scrollPanelRef.value;
   if (!scrollContent || !topSentinel.value) {
     console.warn(
       "setupTopObserver: could not find scroll content or top sentinel",
@@ -546,29 +546,31 @@ function setupTopObserver() {
   topObserver.value = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
-        // When top sentinel becomes visible and we have more messages to load
         if (
           entry.isIntersecting &&
           props.hasMoreMessages &&
           !props.isLoadingMore
         ) {
           console.log("Top sentinel visible - loading older messages...");
-          setTimeout(() => {
-            emit("loadMore");
-          }, 1000);
+
+          // Save current scroll state BEFORE loading
+          savedScrollHeight.value = scrollContent.scrollHeight;
+          savedScrollTop.value = scrollContent.scrollTop;
+
+          // scrollPanelRef.value.hideScrollBar();
+          emit("loadMore");
         }
       });
     },
     {
       root: scrollContent,
-      threshold: 0.1, // Trigger when 10% of sentinel is visible
-      rootMargin: "900px 0px 0px 0px", // Trigger 300px before reaching top
+      threshold: 0.1, // Trigger when top sentinel is 10% visible
+      rootMargin: "500px 0px 0px 0px",
     },
   );
 
   topObserver.value.observe(topSentinel.value);
 }
-
 /**
  * Cleanup the top observer
  */
@@ -580,8 +582,6 @@ function cleanupTopObserver() {
 }
 // Initial state - check if content is scrollable
 onMounted(async () => {
-  console.log("onmounted works!!!!");
-
   lastMessageCount.value = props.messages.length;
 
   // If messages already exist on mount, handle initial scroll
@@ -711,7 +711,7 @@ watch(
 
 // Check if content is scrollable and update button visibility
 function checkScrollState() {
-  const scrollContent = getScrollContent(scrollPanelRef);
+  const scrollContent = scrollPanelRef.value;
   if (scrollContent) {
     const { scrollTop, scrollHeight, clientHeight } = scrollContent;
     const hasScrollableContent = scrollHeight > clientHeight;
@@ -728,14 +728,15 @@ watch(
   () => [props.messages.length, route.params.userId],
   async (newLength, oldLength) => {
     if (newLength[0] === oldLength[0]) return;
+
     // Handle initial messages load (when messages go from 0 to some value)
     if (oldLength[0] === 0 && newLength[0] > 0) {
-      // Wait for DOM to update
       setupMessageObserver();
       setupBottomObserver();
       setupTopObserver();
-      // Priority 0: Check for saved scroll position
+
       const savedMessageId = await loadSavedScrollPosition();
+
       if (props.firstUnreadMessageId) {
         scrollToMessage(props.firstUnreadMessageId, false, scrollPanelRef);
         console.log("scrollToMessage QQQ ", props.firstUnreadMessageId);
@@ -743,17 +744,27 @@ watch(
       } else if (savedMessageId && props.firstUnreadMessageId) {
         savedScrollMessageId.value = savedMessageId;
         scrollToMessage(savedMessageId, false, scrollPanelRef);
-        console.log("scrollToMessage(props.firstUnreadMessageId,  uuuu ");
+        console.log("scrollToMessage(props.firstUnreadMessageId, uuuu ");
       } else {
         console.log("scrollToBottom(false); A");
-
         scrollToBottom(false);
       }
+    } else if (savedScrollHeight.value > 0) {
+      await nextTick();
+
+      const scrollContent = scrollPanelRef.value;
+      if (scrollContent) {
+        // add scroll adjustment
+        const heightDiff = scrollContent.scrollHeight - savedScrollHeight.value;
+        scrollContent.scrollTop = savedScrollTop.value + heightDiff - 430;
+
+        savedScrollHeight.value = 0;
+        savedScrollTop.value = 0;
+      }
     }
-    // Handle subsequent new messages (not initial load)
-    if (newLength[0] > oldLength[0]) {
-      // Check if the new message is our own (sent by us)
-      // In that case, we already scrolled when sending, so just ensure we stay at bottom
+
+    // Handle subsequent new messages (not initial load, not loadMore)
+    else if (newLength[0] > oldLength[0]) {
       const lastMessage = props.messages[props.messages.length - 1];
       const isOwnMessage = lastMessage && isMine(lastMessage);
       console.log(isOwnMessage, "isOwnMessage");
@@ -762,14 +773,12 @@ watch(
         console.log("scrollToBottom(false); C");
         scrollToBottom(true);
       } else {
-        // User is scrolled up, increment counter and show button
         showScrollButton.value = true;
       }
     }
 
     lastMessageCount.value = newLength;
 
-    // Recheck scroll state after content changes
     setTimeout(() => {
       checkScrollState();
     }, 100);
@@ -835,35 +844,6 @@ defineExpose({
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
   position: relative;
   height: 100%;
-}
-
-/* Make ScrollPanel fill the container and show scrollbar */
-.chat-container :deep(.p-scrollpanel) {
-  height: 100% !important;
-  width: 100% !important;
-}
-
-.chat-container :deep(.p-scrollpanel-content-container) {
-  height: 100%;
-  padding-bottom: 0 !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-}
-
-.chat-container :deep(.p-scrollpanel-content) {
-  height: auto !important;
-  min-height: 100%;
-  padding-right: 12px; /* Space for scrollbar */
-}
-
-/* Ensure scrollbar is always visible */
-.chat-container :deep(.p-scrollpanel-bar-y) {
-  opacity: 1 !important;
-  background: #cbd5e1 !important;
-}
-
-.chat-container :deep(.p-scrollpanel-bar-y:hover) {
-  background: #94a3b8 !important;
 }
 
 /* Scroll to Bottom Button */

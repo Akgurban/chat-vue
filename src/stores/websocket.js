@@ -11,6 +11,7 @@ export const useWebSocketStore = defineStore("websocket", () => {
 
   function connect() {
     const authStore = useAuthStore();
+    
     if (!authStore.token) return;
 
     ws.value = new WebSocket(`${WS_URL}?token=${authStore.token}`);
