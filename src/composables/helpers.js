@@ -40,12 +40,11 @@ export async function scrollToMessage(
 ) {
   if (!messageId) return;
 
-  const scrollContent = getScrollContent(scrollPanelRef);
-  if (!scrollContent) return;
+  if (!scrollPanelRef.value) return;
 
   const id = String(messageId).replace("#", "");
 
-  const el = scrollContent.querySelector(`[data-message-id="${id}"]`);
+  const el = scrollPanelRef.value.querySelector(`[data-message-id="${id}"]`);
 
   if (!el) {
     console.warn("Message not found:", id);
