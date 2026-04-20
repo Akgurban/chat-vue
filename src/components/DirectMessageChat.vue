@@ -233,8 +233,9 @@ function handleMessageRead(messageId) {
     type: "direct",
   });
 
+  chatStore.updateToMessageRead(messageId, chatStore.currentDmUserId, true);
+
   // Decrease unread count in local state
-  chatsStore.decreaseUnreadCount("direct", chatStore.currentDmUserId);
 }
 
 /**

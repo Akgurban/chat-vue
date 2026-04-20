@@ -7,7 +7,10 @@
     >
       <div ref="messagesContainer" class="p-3">
         <!-- Top Sentinel - triggers loading older messages -->
-        <div ref="topSentinel" class="scroll-sentinel min-h-5 mb-5">
+        <div
+          ref="topSentinel"
+          class="scroll-sentinel min-h-5 mb-5 bg-amber-300"
+        >
           <div v-if="isLoadingMore" class="loading-more">
             <i class="pi pi-spin pi-spinner"></i>
             <span>Loading older messages...</span>
@@ -298,6 +301,7 @@ function handleScroll(event) {
 
     // Load more messages when scrolling near the top (infinite scroll)
     if (scrollTop < 100 && props.hasMoreMessages && !props.isLoadingMore) {
+      scrollContent.removeEventListener("scroll", handleScroll);
       setTimeout(() => {
         emit("loadMore");
       }, 1000);
