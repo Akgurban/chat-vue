@@ -51,9 +51,10 @@
 
             <!-- Unread divider -->
             <UnreadDivider
+              :msg="msg"
               v-if="msg.id === firstUnreadMessageId && !isMine(msg)"
-              >Unread messages</UnreadDivider
-            >
+              >Unread messages
+            </UnreadDivider>
 
             <!-- Chat Message -->
             <template v-else>
