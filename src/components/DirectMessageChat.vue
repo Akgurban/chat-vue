@@ -39,8 +39,6 @@
       <MessageList
         ref="messageListRef"
         :messages="chatStore.dmMessages"
-        :myMessageColor="chatSettings.myMessageColor"
-        :showAvatars="chatSettings.showAvatars"
         :unreadCount="currentChatUnread"
         :firstUnreadMessageId="chatStore.firstUnreadMessageId"
         :chatId="chatStore.currentDmUserId"
@@ -218,13 +216,6 @@ const firstUnreadMessageId = computed(() => {
   return null;
 });
 
-const chatSettings = reactive({
-  theme: "modern",
-  bubbleStyle: "rounded",
-  myMessageColor: "primary",
-  showAvatars: false,
-});
-
 function getAvatarColor(name) {
   if (!name) return "#6366f1";
   const colors = [
@@ -374,8 +365,13 @@ async function confirmClearChat() {
 }
 
 @keyframes typing-blink {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .header-actions {
