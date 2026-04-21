@@ -726,85 +726,13 @@ defineExpose({
 <style scoped>
 @reference "tailwindcss";
 
-/* Message Transitions */
-.message-enter-active {
-  animation: messageIn 0.3s ease-out;
-}
-
-.message-leave-active {
-  animation: messageOut 0.2s ease-in;
-}
-
-@keyframes messageIn {
-  0% {
-    opacity: 0;
-    transform: translateY(20px) scale(0.95);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes messageOut {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-}
-
 /* Chat Container */
 .chat-container {
-  @apply rounded-lg overflow-hidden;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-  position: relative;
-  height: 100%;
+  @apply rounded-lg overflow-hidden bg-gray-100 relative h-full;
 }
-
-/* Make ScrollPanel fill the container and show scrollbar */
-.chat-container :deep(.p-scrollpanel) {
-  height: 100% !important;
-  width: 100% !important;
-}
-
-.chat-container :deep(.p-scrollpanel-content-container) {
-  height: 100%;
-  padding-bottom: 0 !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-}
-
-.chat-container.is-loading-more :deep(.p-scrollpanel-content-container) {
-  overflow-y: hidden !important;
-}
-
-.chat-container :deep(.p-scrollpanel-content) {
-  height: auto !important;
-  min-height: 100%;
-  padding-right: 12px; /* Space for scrollbar */
-}
-
-/* Ensure scrollbar is always visible */
-.chat-container :deep(.p-scrollpanel-bar-y) {
-  opacity: 1 !important;
-  background: #cbd5e1 !important;
-}
-
-.chat-container :deep(.p-scrollpanel-bar-y:hover) {
-  background: #94a3b8 !important;
-}
-
 /* Scroll to Bottom Button */
 .scroll-to-bottom-btn {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  z-index: 10;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  @apply absolute bottom-4 right-4 z-10 shadow-lg;
 }
 
 /* Fade transition for button */
@@ -870,13 +798,7 @@ defineExpose({
 
 /* Loading More Messages */
 .loading-more {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  color: #64748b;
-  font-size: 14px;
+  @apply flex items-center justify-center gap-2 p-3 text-[#64748b] text-[14px];
 }
 
 .loading-more i {
@@ -1049,11 +971,6 @@ defineExpose({
   50% {
     transform: translateY(-10px);
   }
-}
-
-/* Theme Variations */
-.theme-modern .chat-container {
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .theme-classic .message-bubble .message-content {
