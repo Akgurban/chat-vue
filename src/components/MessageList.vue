@@ -11,11 +11,12 @@
     >
       <div ref="messagesContainer" class="px-3 py-2">
         <!-- Top Sentinel - triggers loading older messages -->
-        <div
-          v-if="isLoadingMore"
-          ref="topSentinel"
-          class="w-full top-0 min-h-[1px]"
-        ></div>
+        <div ref="topSentinel" class="w-full top-0 min-h-[1px]"></div>
+
+        <!-- Loading indicator -->
+        <div v-if="isLoadingMore" class="flex justify-center py-2">
+          <span class="text-xs text-gray-400">Loading older messages...</span>
+        </div>
 
         <div
           v-if="!hasMoreMessages && messages.length > 0"
@@ -25,80 +26,95 @@
         </div>
 
         <div
-          v-for="(msg, index) in messages"
-          :key="msg._pendingKey || msg.id || index"
-          :data-message-id="msg.id"
-          :class="getMessageClass(msg)"
+          v-for="(group, groupIndex) in dateGroupedMessages"
+          :key="groupIndex"
         >
-          <!-- New messages divider (between cached and fresh messages) -->
-          <NewMessages v-if="msg.id === firstNewMessageId">
-            New messages
-          </NewMessages>
-
-          <!-- Unread divider -->
-          <UnreadDivider v-if="msg.id === firstUnreadMessageId && !isMine(msg)"
-            >Unread messages</UnreadDivider
-          >
-
-          <!-- Chat Message -->
-          <template v-else>
-            <div
-              class="flex items-end gap-2 max-w-[75%] transition-all duration-200 ease-in-out"
-              :class="isMine(msg) ? 'flex-row-reverse' : ''"
+          <!-- Date separator -->
+          <div class="sticky top-0 z-10 flex justify-center py-2">
+            <span
+              class="text-xs text-gray-500 font-medium bg-gray-200 rounded-full px-3 py-1 shadow-sm"
             >
-              <!-- Avatar for others' messages -->
+              {{ group.date }}
+            </span>
+          </div>
+
+          <div
+            v-for="(msg, index) in group.messages"
+            :key="msg._pendingKey || msg.id || index"
+            :data-message-id="msg.id"
+            :class="getMessageClass(msg)"
+          >
+            <!-- New messages divider (between cached and fresh messages) -->
+            <NewMessages v-if="msg.id === firstNewMessageId">
+              New messages
+            </NewMessages>
+
+            <!-- Unread divider -->
+            <UnreadDivider
+              v-if="msg.id === firstUnreadMessageId && !isMine(msg)"
+              >Unread messages</UnreadDivider
+            >
+
+            <!-- Chat Message -->
+            <template v-else>
               <div
-                :style="{
-                  backgroundColor: getAvatarColor(msg.sender_username),
-                }"
-                class="w-8 h-8 flex items-center justify-center rounded-full text-white text-sm flex-shrink-0 transition-all duration-200"
-                shape="circle"
+                class="flex items-end gap-2 max-w-[75%] transition-all duration-200 ease-in-out"
+                :class="isMine(msg) ? 'flex-row-reverse' : ''"
               >
-                {{ msg.sender_username?.charAt(0).toUpperCase() }}
-              </div>
-
-              <div
-                class="px-4 py-2.5 shadow-sm"
-                :class="isMine(msg) ? 'bg-purple-400' : 'bg-white'"
-              >
-                <!-- Username & Time -->
+                <!-- Avatar for others' messages -->
                 <div
-                  class="flex items-center gap-2 mb-1"
-                  :class="isMine(msg) ? 'text-white' : 'text-gray-800'"
-                  v-if="!isMine(msg)"
+                  :style="{
+                    backgroundColor: getAvatarColor(msg.sender_username),
+                  }"
+                  class="w-8 h-8 flex items-center justify-center rounded-full text-white text-sm flex-shrink-0 transition-all duration-200"
+                  shape="circle"
                 >
-                  <span class="text-xs font-semibold">{{
-                    msg.sender_username
-                  }}</span>
-                  <span class="text-xs opacity-60">{{
-                    formatTime(msg.created_at)
-                  }}</span>
+                  {{ msg.sender_username?.charAt(0).toUpperCase() }}
                 </div>
 
-                <!-- Message Text -->
                 <div
-                  class="text-sm leading-relaxed break-words"
-                  :class="isMine(msg) ? 'text-white' : 'text-gray-800'"
+                  class="px-4 py-2.5 shadow-sm"
+                  :class="isMine(msg) ? 'bg-purple-400' : 'bg-white'"
                 >
-                  {{ msg.content }} - {{ msg.is_read }}
-                </div>
-
-                <!-- Message Status (for own messages) -->
-                <div
-                  v-if="isMine(msg)"
-                  class="flex justify-end mt-1 opacity-70"
-                  :class="isMine(msg) ? 'text-white' : 'text-gray-800'"
-                >
-                  <div v-if="msg.is_read">
-                    <i class="pi pi-check-circle text-xs"></i>
+                  <!-- Username & Time -->
+                  <div
+                    class="flex items-center gap-2 mb-1"
+                    :class="isMine(msg) ? 'text-white' : 'text-gray-800'"
+                    v-if="!isMine(msg)"
+                  >
+                    <span class="text-xs font-semibold">{{
+                      msg.sender_username
+                    }}</span>
+                    <span class="text-xs opacity-60">{{
+                      formatTime(msg.created_at)
+                    }}</span>
                   </div>
-                  <div v-else>
-                    <i class="pi pi-check text-xs"></i>
+
+                  <!-- Message Text -->
+                  <div
+                    class="text-sm leading-relaxed break-words"
+                    :class="isMine(msg) ? 'text-white' : 'text-gray-800'"
+                  >
+                    {{ msg.content }} - {{ msg.is_read }}
+                  </div>
+
+                  <!-- Message Status (for own messages) -->
+                  <div
+                    v-if="isMine(msg)"
+                    class="flex justify-end mt-1 opacity-70"
+                    :class="isMine(msg) ? 'text-white' : 'text-gray-800'"
+                  >
+                    <div v-if="msg.is_read">
+                      <i class="pi pi-check-circle text-xs"></i>
+                    </div>
+                    <div v-else>
+                      <i class="pi pi-check text-xs"></i>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </template>
+            </template>
+          </div>
         </div>
 
         <!-- Empty State -->
@@ -200,11 +216,30 @@ const initialScrollDone = ref(false); // Track if initial scroll position has be
 const readMessageIds = ref(new Set());
 const messageObserver = ref(null);
 const bottomObserver = ref(null);
+const topObserver = ref(null);
 
 // Display unread count - use local count that decreases as messages are read
 const displayUnreadCount = computed(() => {
   // Show new messages count if higher, otherwise show remaining unread
   return newMessagesCount.value;
+});
+
+const dateGroupedMessages = computed(() => {
+  const groups = [];
+  let currentGroup = null;
+  props.messages.forEach((msg) => {
+    const msgDate = new Date(msg.created_at).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    if (!currentGroup || currentGroup.date !== msgDate) {
+      currentGroup = { date: msgDate, messages: [] };
+      groups.push(currentGroup);
+    }
+    currentGroup.messages.push(msg);
+  });
+  return groups;
 });
 
 function getMessageClass(msg) {
@@ -251,7 +286,7 @@ async function scrollToBottom(smooth = true) {
     console.warn("scrollToBottom: could not find scroll content element");
   }
 }
-
+const isLoading = ref(false);
 function handleScroll(event) {
   if (scrollPanelRef.value) {
     const { scrollTop, scrollHeight, clientHeight } = scrollPanelRef.value;
@@ -266,11 +301,6 @@ function handleScroll(event) {
     // Clear new messages count when user scrolls to bottom
     if (isAtBottom.value) {
       newMessagesCount.value = 0;
-    }
-
-    // Load more messages when scrolling near the top (infinite scroll)
-    if (scrollTop < 100 && props.hasMoreMessages && !props.isLoadingMore) {
-      emit("loadMore");
     }
   }
 }
@@ -490,6 +520,55 @@ function cleanupBottomObserver() {
     bottomObserver.value = null;
   }
 }
+
+/**
+ * Setup Intersection Observer for the top sentinel
+ * Triggers loading older messages when user scrolls near the top
+ */
+function setupTopObserver() {
+  if (topObserver.value) {
+    topObserver.value.disconnect();
+  }
+
+  if (!scrollPanelRef.value || !topSentinel.value) {
+    console.warn(
+      "setupTopObserver: could not find scroll content or top sentinel",
+    );
+    return;
+  }
+
+  topObserver.value = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (
+          entry.isIntersecting &&
+          props.hasMoreMessages &&
+          !props.isLoadingMore
+        ) {
+          isLoading.value = true;
+          emit("loadMore");
+        }
+      });
+    },
+    {
+      root: scrollPanelRef.value,
+      threshold: 0,
+      rootMargin: "100px 0px 0px 0px",
+    },
+  );
+
+  topObserver.value.observe(topSentinel.value);
+}
+
+/**
+ * Cleanup the top observer
+ */
+function cleanupTopObserver() {
+  if (topObserver.value) {
+    topObserver.value.disconnect();
+    topObserver.value = null;
+  }
+}
 // Initial state - check if content is scrollable
 onMounted(async () => {
   lastMessageCount.value = props.messages.length;
@@ -503,6 +582,7 @@ onMounted(async () => {
     setupMessageObserver();
     // Setup bottom observer for reliable "at bottom" detection
     setupBottomObserver();
+    setupTopObserver();
 
     // Setup top observer for loading older messages
     const savedMessageId = loadSavedScrollPosition();
@@ -532,7 +612,7 @@ onBeforeUnmount(() => {
   saveCurrentScrollPosition();
   cleanupMessageObserver();
   cleanupBottomObserver();
-  // cleanupTopObserver();
+  cleanupTopObserver();
   // Remove beforeunload listener
   window.removeEventListener("beforeunload", handleBeforeUnload);
 });
@@ -610,36 +690,26 @@ watch(
     readMessageIds.value = new Set();
     cleanupMessageObserver();
     cleanupBottomObserver();
+    cleanupTopObserver();
 
     // The messages watcher will handle scrolling when messages load for the new chat
   },
   { immediate: false },
 );
 
-// Check if content is scrollable and update button visibility
-function checkScrollState() {
-  if (scrollPanelRef.value) {
-    const { scrollTop, scrollHeight, clientHeight } = scrollPanelRef.value;
-    const hasScrollableContent = scrollHeight > clientHeight;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-
-    // Only show button if there's scrollable content AND not at bottom
-    isAtBottom.value = !hasScrollableContent || distanceFromBottom < 100;
-    showScrollButton.value = hasScrollableContent && !isAtBottom.value;
-  }
-}
-
 // When new messages arrive
 watch(
   () => [props.messages.length, route.params.userId],
   async (newLength, oldLength) => {
+    isLoading.value = false;
+
     if (newLength[0] === oldLength[0]) return;
     // Handle initial messages load (when messages go from 0 to some value)
     if (oldLength[0] === 0 && newLength[0] > 0) {
       // Wait for DOM to update
       setupMessageObserver();
       setupBottomObserver();
-      // setupTopObserver();
+      setupTopObserver();
       // Priority 0: Check for saved scroll position
       const savedMessageId = await loadSavedScrollPosition();
       if (props.firstUnreadMessageId) {
@@ -674,11 +744,6 @@ watch(
     }
 
     lastMessageCount.value = newLength;
-
-    // Recheck scroll state after content changes
-    setTimeout(() => {
-      checkScrollState();
-    }, 100);
   },
 );
 onMounted(() => {
@@ -692,8 +757,6 @@ onMounted(() => {
 watch(
   () => props.unreadCount,
   (newCount) => {
-    // Only update if the new count is higher (new unread messages arrived)
-    // or if it's a reset (0)
     if (newCount > localUnreadCount.value || newCount === 0) {
       localUnreadCount.value = newCount;
     }
