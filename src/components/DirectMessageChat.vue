@@ -1,5 +1,8 @@
 <template>
-  <div class="telegram-chat">
+  <div
+    class="telegram-chat"
+    :class="{ 'has-bg': themeStore.hasCustomBackground }"
+  >
     <!-- Chat Header -->
     <div class="chat-header">
       <div class="header-info">
@@ -35,7 +38,10 @@
     </div>
 
     <!-- Messages Area -->
-    <div class="messages-area">
+    <div
+      class="messages-area"
+      :style="themeStore.chatBackgroundStyle"
+    >
       <MessageList
         ref="messageListRef"
         :messages="chatStore.dmMessages"
@@ -75,6 +81,7 @@ import { useChatStore } from "../stores/chat";
 import { useChatsStore } from "../stores/chats";
 import { useAuthStore } from "../stores/auth";
 import { useWebSocketStore } from "../stores/websocket";
+import { useThemeStore } from "../stores/theme";
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
 import Avatar from "primevue/avatar";
@@ -93,6 +100,7 @@ const chatStore = useChatStore();
 const chatsStore = useChatsStore();
 const authStore = useAuthStore();
 const wsStore = useWebSocketStore();
+const themeStore = useThemeStore();
 const message = ref("");
 const page = ref(1);
 const messageListRef = ref(null);
@@ -319,10 +327,12 @@ async function confirmClearChat() {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: white;
-  border-radius: 12px;
+  background: #fff;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.telegram-chat.has-bg {
+  background: transparent;
 }
 
 /* Header */
@@ -330,9 +340,11 @@ async function confirmClearChat() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e7e7e7;
+  flex-shrink: 0;
+  z-index: 2;
 }
 
 .header-info {
@@ -393,21 +405,39 @@ async function confirmClearChat() {
   margin-bottom: 4px;
 }
 
-/* Messages Area */
 .messages-area {
   flex: 1;
   overflow: hidden;
   position: relative;
   min-height: 0;
-  height: 0; /* Forces flex item to respect flex: 1 properly */
+  height: 0;
+  background-color: #e6ebee;
+  background-repeat: repeat !important;
+  background-size: contain !important;
+  background-position: top left !important;
+}
+
+.telegram-chat.has-bg .messages-area::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.messages-area :deep(.message-list-root) {
+  position: relative;
+  z-index: 1;
 }
 
 /* Message Input */
 .message-input {
-  padding: 12px 16px;
-  background: #f8fafc;
-  border-top: 1px solid #e5e7eb;
+  padding: 10px 12px;
+  background: #fff;
+  border-top: 1px solid #e7e7e7;
   flex-shrink: 0;
+  z-index: 2;
 }
 
 .input-form {

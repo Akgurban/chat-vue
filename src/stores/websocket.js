@@ -7,6 +7,7 @@ const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8080/ws";
 export const useWebSocketStore = defineStore("websocket", () => {
   const ws = ref(null);
   const isConnected = ref(false);
+  const isReconnecting = ref(false);
   const messageHandlers = ref([]);
 
   function connect() {
@@ -16,14 +17,13 @@ export const useWebSocketStore = defineStore("websocket", () => {
     ws.value = new WebSocket(`${WS_URL}?token=${authStore.token}`);
 
     ws.value.onopen = () => {
-      console.log("WebSocket connected");
       isConnected.value = true;
+      isReconnecting.value = false;
     };
 
     ws.value.onclose = () => {
-      console.log("WebSocket disconnected");
       isConnected.value = false;
-      // Reconnect after 3 seconds
+      if (authStore.token) isReconnecting.value = true;
       setTimeout(() => {
         if (authStore.token) connect();
       }, 3000);
@@ -40,10 +40,12 @@ export const useWebSocketStore = defineStore("websocket", () => {
   }
 
   function disconnect() {
+    isReconnecting.value = false;
     if (ws.value) {
       ws.value.close();
       ws.value = null;
     }
+    isConnected.value = false;
   }
 
   function send(type, payload) {
@@ -65,6 +67,7 @@ export const useWebSocketStore = defineStore("websocket", () => {
 
   return {
     isConnected,
+    isReconnecting,
     connect,
     disconnect,
     send,

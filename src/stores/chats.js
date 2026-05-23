@@ -111,8 +111,9 @@ export const useChatsStore = defineStore("chats", () => {
 
       return data;
     } catch (err) {
+      
       console.error("Failed to fetch chat:", err);
-      return null;
+  
     }
   }
 

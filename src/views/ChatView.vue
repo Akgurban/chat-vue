@@ -1,214 +1,205 @@
 <template>
   <div class="telegram-layout">
-    <!-- Sidebar -->
     <aside
       class="sidebar"
       :class="{ 'sidebar-hidden': isChatOpen && isMobile }"
     >
-      <!-- Header -->
-      <div class="sidebar-header">
-        <div class="flex items-center gap-3">
+      <!-- Header: Chats + search -->
+      <header class="sidebar-header">
+        <button
+          type="button"
+          class="menu-btn"
+          :class="{ 'menu-btn--open': showMenu }"
+          aria-label="Menu"
+          @click="showMenu = !showMenu"
+        >
+          <i class="pi pi-bars"></i>
+        </button>
+        <div v-if="wsStore.isConnected" class="header-search">
+          <i class="pi pi-search search-icon"></i>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search"
+            class="search-input"
+            @input="handleSearchInput"
+          />
+          <button
+            v-if="searchQuery"
+            type="button"
+            class="search-clear"
+            aria-label="Clear search"
+            @click="clearSearch"
+          >
+            <i class="pi pi-times"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Connection status (replaces search row when offline) -->
+      <div v-if="!wsStore.isConnected" class="connection-banner">
+        <i
+          :class="
+            wsStore.isReconnecting
+              ? 'pi pi-spin pi-spinner'
+              : 'pi pi-exclamation-circle'
+          "
+        ></i>
+        <span>{{
+          wsStore.isReconnecting
+            ? "Retrying to connect..."
+            : "Disconnected"
+        }}</span>
+      </div>
+
+      <!-- Menu dropdown (settings + logout) -->
+      <div v-if="showMenu" class="sidebar-menu">
+        <div class="user-menu">
           <Avatar
             :label="authStore.user?.username?.charAt(0).toUpperCase()"
             shape="circle"
-            class="cursor-pointer"
-            @click="showMenu = !showMenu"
+            class="user-avatar"
           />
-          <span class="font-semibold text-lg">{{
-            authStore.user?.username
-          }}</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <Button
-            icon="pi pi-cog"
-            text
-            rounded
-            size="small"
-            @click="showSettings = true"
-          />
-        </div>
-      </div>
-
-      <!-- Search -->
-      <div class="sidebar-search">
-        <div class="flex items-center">
-          <Search />
-          <InputText
-            v-model="searchQuery"
-            placeholder="Search chats or users..."
-            class="w-full"
-            @input="handleSearchInput"
-          />
-          <Search
-            v-if="searchQuery"
-            class="pi pi-times cursor-pointer"
-            @click="clearSearch"
-          />
-        </div>
-      </div>
-
-      <!-- Search Results (Users from API) -->
-      <div v-if="searchQuery && searchQuery.length >= 2" class="search-results">
-        <!-- Loading -->
-        <div v-if="searchLoading" class="search-loading">
-          <i class="pi pi-spin pi-spinner"></i>
-          <span>Searching users...</span>
-        </div>
-
-        <!-- User Search Results -->
-        <div v-else-if="searchResults.length > 0" class="search-section">
-          <div class="search-section-title">
-            <i class="pi pi-users"></i>
-            <span>Users</span>
+          <div class="user-menu-info">
+            <span class="user-menu-name">{{ authStore.user?.username }}</span>
+            <span class="user-menu-status">Online</span>
           </div>
-          <div
+        </div>
+        <button type="button" class="menu-item" @click="openSettings">
+          <i class="pi pi-cog"></i>
+          <span>Settings</span>
+        </button>
+        <button
+          type="button"
+          class="menu-item menu-item--danger"
+          @click="handleLogout"
+        >
+          <i class="pi pi-sign-out"></i>
+          <span>Log out</span>
+        </button>
+      </div>
+
+      <!-- Search results -->
+      <div
+        v-if="wsStore.isConnected && searchQuery && searchQuery.length >= 2"
+        class="search-results"
+      >
+        <div v-if="searchLoading" class="search-state">
+          <i class="pi pi-spin pi-spinner"></i>
+          <span>Searching...</span>
+        </div>
+        <template v-else-if="searchResults.length > 0">
+          <p class="search-label">Global search</p>
+          <button
             v-for="user in searchResults"
             :key="'search-' + user.id"
+            type="button"
+            class="chat-row search-row"
             @click="startChatWithUser(user)"
-            class="search-item"
           >
-            <Avatar
-              :label="user.username?.charAt(0).toUpperCase()"
-              :style="{ backgroundColor: getAvatarColor(user.username) }"
-              shape="circle"
-              class="text-white"
-            />
-            <div class="search-item-info">
-              <span class="search-item-name">{{ user.username }}</span>
-              <span class="search-item-email" v-if="user.email">{{
+            <div class="avatar-wrap">
+              <Avatar
+                :label="user.username?.charAt(0).toUpperCase()"
+                :style="{ backgroundColor: getAvatarColor(user.username) }"
+                shape="circle"
+                class="text-white"
+              />
+              <span
+                :class="['status-dot', user.is_online ? 'online' : 'offline']"
+              ></span>
+            </div>
+            <div class="chat-row-body">
+              <span class="chat-row-name">{{ user.username }}</span>
+              <span v-if="user.email" class="chat-row-preview">{{
                 user.email
               }}</span>
             </div>
-            <span
-              :class="['status-dot', user.is_online ? 'online' : 'offline']"
-            ></span>
-          </div>
-        </div>
-
-        <!-- No Results -->
-        <div
-          v-else-if="!searchLoading && searchQuery.length >= 2"
-          class="search-empty"
-        >
-          <i class="pi pi-search"></i>
+          </button>
+        </template>
+        <div v-else class="search-state">
           <span>No users found</span>
         </div>
       </div>
 
-      <!-- Chats List -->
+      <!-- Chats list -->
       <div class="chats-list">
         <div
           v-if="chatsStore.loading && chatsStore.chats.length === 0"
-          class="loading-state"
+          class="list-state"
         >
-          <i class="pi pi-spin pi-spinner text-2xl"></i>
-          <span>Loading...</span>
+          <i class="pi pi-spin pi-spinner"></i>
         </div>
-
-        <div v-else-if="filteredChats.length === 0" class="empty-state">
-          <i class="pi pi-inbox text-4xl"></i>
-          <span>No chats found</span>
+        <div v-else-if="filteredChats.length === 0" class="list-state">
+          <i class="pi pi-inbox"></i>
+          <span>No chats yet</span>
         </div>
-
-        <TransitionGroup name="chat-list" tag="div" v-else>
-          <div
+        <TransitionGroup v-else name="chat-list" tag="div">
+          <button
             v-for="chat in filteredChats"
             :key="`${chat.type}-${chat.id}`"
-            @click="openChat(chat)"
+            type="button"
             :class="[
-              'chat-item',
+              'chat-row',
               { active: isActiveChat(chat), unread: chat.unread_count > 0 },
             ]"
+            @click="openChat(chat)"
           >
-            <!-- Avatar -->
-            <div class="chat-avatar">
+            <div class="avatar-wrap">
               <Avatar
                 :label="chat.name?.charAt(0).toUpperCase()"
                 :style="{ backgroundColor: getAvatarColor(chat.name) }"
                 shape="circle"
-                size="large"
-                class="text-white"
+                class="text-white chat-avatar-lg"
               />
               <span
                 v-if="chat.type === 'direct'"
                 :class="['status-dot', chat.is_online ? 'online' : 'offline']"
               ></span>
-              <span v-else class="type-icon">
-                <i
-                  :class="chat.is_private ? 'pi pi-lock' : 'pi pi-users'"
-                  style="font-size: 10px"
-                ></i>
-              </span>
             </div>
-
-            <!-- Content -->
-            <div class="chat-info">
-              <div class="chat-top">
-                <span class="chat-name">{{ chat.name }}</span>
-                <span class="chat-time">{{
+            <div class="chat-row-body">
+              <div class="chat-row-top">
+                <span class="chat-row-name">{{ chat.name }}</span>
+                <span class="chat-row-time">{{
                   formatTime(chat.last_message_at)
                 }}</span>
               </div>
-              <div class="chat-bottom">
-                <span v-if="getTypingUser(chat)" class="typing">
-                  ...typing
-                </span>
+              <div class="chat-row-bottom">
+                <span v-if="getTypingUser(chat)" class="typing">typing</span>
                 <template v-else-if="chat.last_message">
                   <span
-                    class="sender"
                     v-if="chat.last_message.sender_id === authStore.user?.id"
+                    class="you"
                     >You:
                   </span>
-                  <span class="preview">{{ chat.last_message.content }}</span>
+                  <span class="chat-row-preview">{{
+                    chat.last_message.content
+                  }}</span>
                 </template>
-                <span v-else class="no-msg">No messages yet</span>
+                <span v-else class="chat-row-preview muted">No messages</span>
               </div>
             </div>
-
-            <!-- Unread Badge -->
-            <Badge
-              v-if="chat.unread_count > 0"
-              :value="chat.unread_count"
-              severity="danger"
-              class="unread-badge"
-            />
-          </div>
+            <span v-if="chat.unread_count > 0" class="unread-pill">
+              {{ chat.unread_count > 99 ? "99+" : chat.unread_count }}
+            </span>
+          </button>
         </TransitionGroup>
-
-        <!-- End of chats list -->
       </div>
 
-      <!-- Logout at bottom -->
-      <div class="sidebar-footer">
-        <ConnectionStatus />
-        <Button
-          @click="handleLogout"
-          label="Logout"
-          severity="danger"
-          text
-          icon="pi pi-sign-out"
-          class="w-full"
-        />
-      </div>
     </aside>
 
-    <!-- Main Chat Area -->
-    <main
-      class="chat-area"
-      :class="{ 'chat-visible': isChatOpen || !isMobile }"
-    >
-      <!-- Back button for mobile -->
+    <main class="chat-area" :class="{ 'chat-visible': isChatOpen || !isMobile }">
       <div v-if="isMobile && isChatOpen" class="mobile-back" @click="goBack">
         <i class="pi pi-arrow-left"></i>
         <span>Back</span>
       </div>
-
       <router-view v-slot="{ Component }">
         <transition name="slide" mode="out-in">
           <component :is="Component" />
         </transition>
       </router-view>
     </main>
+
+    <SettingsDialog v-if="showSettings" @close="showSettings = false" />
   </div>
 </template>
 
@@ -221,23 +212,16 @@ import { useChatStore } from "../stores/chat";
 import { useNotificationStore } from "../stores/notifications";
 import { useChatsStore } from "../stores/chats";
 import { browserNotifications } from "../utils/notifications";
-import Button from "primevue/button";
 import Avatar from "primevue/avatar";
-import Badge from "primevue/badge";
-import InputText from "primevue/inputtext";
-import IconField from "primevue/iconfield";
-import InputIcon from "primevue/inputicon";
-import { Search } from "@lucide/vue";
-
-import ConnectionStatus from "../components/ConnectionStatus.vue";
+import SettingsDialog from "../components/SettingsDialog.vue";
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
-const wsStore = useWebSocketStore();
 const chatStore = useChatStore();
 const notificationStore = useNotificationStore();
 const chatsStore = useChatsStore();
+const wsStore = useWebSocketStore();
 
 const searchQuery = ref("");
 const searchResults = ref([]);
@@ -248,35 +232,21 @@ const windowWidth = ref(window.innerWidth);
 
 let searchDebounceTimer = null;
 
-// Data to share with child components (DirectMessageChat)
-const chatViewData = ref({
-  isRefreshed: false,
-  searchQuery: "",
-  // Add any other data you want to pass
-});
-
-// Track if page was refreshed - will be consumed by child when ready
+const chatViewData = ref({ isRefreshed: false, searchQuery: "" });
 const pendingPageRefresh = ref(false);
-
-// Store for child callbacks - child registers, parent calls
 const childCallbacks = ref({
   onRouteChange: null,
-  onPageRefresh: null, // Called when page is refreshed (F5) without route change
-  // Add more callbacks as needed
+  onPageRefresh: null,
 });
 
-// Function for child to register its callback
 function registerCallback(name, callback) {
   childCallbacks.value[name] = callback;
-
-  // If child registers onPageRefresh and we have a pending refresh, call it immediately
   if (name === "onPageRefresh" && callback && pendingPageRefresh.value) {
     callback();
     pendingPageRefresh.value = false;
   }
 }
 
-// Provide data and register function to all child components
 provide("chatViewData", chatViewData);
 provide("registerParentCallback", registerCallback);
 
@@ -286,64 +256,57 @@ const isChatOpen = computed(() => route.name === "dm");
 const filteredChats = computed(() => {
   let result = chatsStore.chats;
   if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase();
+    const q = searchQuery.value.toLowerCase();
     result = result.filter(
-      (chat) =>
-        chat.name?.toLowerCase().includes(query) ||
-        chat.last_message?.content?.toLowerCase().includes(query),
+      (c) =>
+        c.name?.toLowerCase().includes(q) ||
+        c.last_message?.content?.toLowerCase().includes(q),
     );
   }
   return result;
 });
 
-// Handle search input with debounce
 function handleSearchInput() {
   clearTimeout(searchDebounceTimer);
-
   if (!searchQuery.value || searchQuery.value.length < 2) {
     searchResults.value = [];
     searchLoading.value = false;
     return;
   }
-
   searchLoading.value = true;
-  searchDebounceTimer = setTimeout(async () => {
-    await performSearch();
-  }, 300);
+  searchDebounceTimer = setTimeout(performSearch, 300);
 }
 
-// Perform the actual search
 async function performSearch() {
   if (!searchQuery.value || searchQuery.value.length < 2) {
     searchResults.value = [];
     searchLoading.value = false;
     return;
   }
-
   try {
     const results = await chatsStore.searchUsers(searchQuery.value);
-    // Filter out current user and users already in chat list
-    const existingChatIds = chatsStore.chats.map((c) => c.id);
+    const existingIds = chatsStore.chats.map((c) => c.id);
     searchResults.value = results.filter(
-      (user) =>
-        user.id !== authStore.user?.id && !existingChatIds.includes(user.id),
+      (u) => u.id !== authStore.user?.id && !existingIds.includes(u.id),
     );
-  } catch (err) {
-    console.error("Search failed:", err);
+  } catch {
     searchResults.value = [];
   } finally {
     searchLoading.value = false;
   }
 }
 
-// Clear search
 function clearSearch() {
   searchQuery.value = "";
   searchResults.value = [];
   searchLoading.value = false;
 }
 
-// Start chat with a user from search results
+function openSettings() {
+  showMenu.value = false;
+  showSettings.value = true;
+}
+
 function startChatWithUser(user) {
   clearSearch();
   router.push(`/dm/${user.id}`);
@@ -355,14 +318,10 @@ function handleResize() {
 
 onMounted(() => {
   const navEntry = performance.getEntriesByType("navigation")[0];
-  const isPageRefresh = navEntry?.type === "reload";
-
-  if (isPageRefresh) {
-    console.log("Page was refreshed (F5)!");
+  if (navEntry?.type === "reload") {
     chatViewData.value.isRefreshed = true;
-    pendingPageRefresh.value = true; // Mark as pending, child will consume when ready
+    pendingPageRefresh.value = true;
   }
-
   window.addEventListener("resize", handleResize);
   initializeApp();
 });
@@ -373,39 +332,24 @@ onUnmounted(() => {
 
 watch(route, () => {
   chatViewData.value.isRefreshed = false;
-
-  // Call the child's registered callback if it exists
-  if (childCallbacks.value.onRouteChange) {
-    childCallbacks.value.onRouteChange();
-  }
+  childCallbacks.value.onRouteChange?.();
 });
 
 watch(
   () => authStore.isAuthenticated,
   (isAuth) => {
-    if (isAuth) {
-      initializeApp();
-    } else {
-      router.push("/login");
-    }
+    if (isAuth) initializeApp();
+    else router.push("/login");
   },
 );
 
 async function initializeApp() {
-  if (authStore.isAuthenticated) {
-    // Initialize from IndexedDB cache first (fast load)
-    await chatsStore.initFromCache();
-
-    // Connect WebSocket
-    wsStore.connect();
-    wsStore.addMessageHandler(chatStore.handleWebSocketMessage);
-
-    // Fetch chats from server (updates cache)
-    await chatsStore.fetchChats();
-
-    // Request notification permission
-    browserNotifications.requestPermission();
-  }
+  if (!authStore.isAuthenticated) return;
+  await chatsStore.initFromCache();
+  wsStore.connect();
+  wsStore.addMessageHandler(chatStore.handleWebSocketMessage);
+  await chatsStore.fetchChats();
+  browserNotifications.requestPermission();
 }
 
 function handleLogout() {
@@ -434,18 +378,18 @@ function getTypingUser(chat) {
 }
 
 function getAvatarColor(name) {
-  if (!name) return "#6366f1";
+  if (!name) return "#3390ec";
   const colors = [
-    "#6366f1",
-    "#8b5cf6",
-    "#ec4899",
-    "#f43f5e",
-    "#f97316",
-    "#eab308",
-    "#22c55e",
-    "#14b8a6",
-    "#06b6d4",
-    "#3b82f6",
+    "#3390ec",
+    "#6fc06f",
+    "#e17076",
+    "#faa774",
+    "#a695e7",
+    "#7bc862",
+    "#5bc0de",
+    "#f06292",
+    "#ba68c8",
+    "#4db6ac",
   ];
   return colors[name.charCodeAt(0) % colors.length];
 }
@@ -455,7 +399,6 @@ function formatTime(timestamp) {
   const date = new Date(timestamp);
   const now = new Date();
   const diff = now - date;
-
   if (diff < 86400000 && date.getDate() === now.getDate()) {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
@@ -468,339 +411,430 @@ function formatTime(timestamp) {
 
 <style scoped>
 .telegram-layout {
+  --tg-blue: #3390ec;
+  --tg-sidebar-bg: #ffffff;
+  --tg-sidebar-search: #f4f4f5;
+  --tg-text: #000000;
+  --tg-secondary: #707579;
+  --tg-hover: #f4f4f5;
+  --tg-active: #3390ec1a;
+  --tg-border: #e7e7e7;
+
   display: flex;
   height: 100vh;
-  background: #f0f2f5;
+  background: #e6ebee;
   overflow: hidden;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }
 
-/* Sidebar */
 .sidebar {
-  width: 350px;
-  min-width: 350px;
-  background: white;
+  width: 420px;
+  max-width: 33vw;
+  min-width: 280px;
+  background: var(--tg-sidebar-bg);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e5e7eb;
-  transition: transform 0.3s ease;
+  border-right: 1px solid var(--tg-border);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f8fafc;
-}
-
-.sidebar-search {
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.search-input-wrapper {
-  position: relative;
-}
-
-.search-clear-btn {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  padding: 4px;
-  cursor: pointer;
-  color: #94a3b8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  transition: all 0.2s;
-}
-
-.search-clear-btn:hover {
-  background: #f1f5f9;
-  color: #64748b;
-}
-
-/* Search Results */
-.search-results {
-  border-bottom: 1px solid #e5e7eb;
-  background: #f8fafc;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.search-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  color: #64748b;
-  font-size: 14px;
   gap: 8px;
+  padding: 8px 10px 8px 6px;
+  min-height: 56px;
+  flex-shrink: 0;
 }
 
-.search-section {
-  padding: 8px;
+.menu-btn,
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  color: var(--tg-secondary);
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
-.search-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-  padding: 8px 12px 4px;
-  letter-spacing: 0.5px;
+.menu-btn:hover,
+.icon-btn:hover {
+  background: var(--tg-hover);
+  color: var(--tg-text);
 }
 
-.search-item {
+.menu-btn--open {
+  background: var(--tg-active);
+  color: var(--tg-blue);
+}
+
+.sidebar-menu {
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--tg-border);
+  animation: slideDown 0.2s ease;
+}
+
+.menu-item {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   padding: 10px 12px;
-  border-radius: 8px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 15px;
+  color: var(--tg-text);
   cursor: pointer;
-  transition: all 0.15s ease;
+  text-align: left;
+  transition: background 0.12s;
 }
 
-.search-item:hover {
-  background: #e2e8f0;
+.menu-item:hover {
+  background: var(--tg-hover);
 }
 
-.search-item-info {
+.menu-item i {
+  width: 20px;
+  color: var(--tg-secondary);
+  font-size: 16px;
+}
+
+.menu-item--danger {
+  color: #dc2626;
+}
+
+.menu-item--danger i {
+  color: #dc2626;
+}
+
+.menu-item--danger:hover {
+  background: #fee2e2;
+}
+
+.icon-btn--danger:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.header-search {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--tg-sidebar-search);
+  border-radius: 20px;
+  padding: 0 12px;
+  height: 36px;
+  margin: 0 4px;
+}
+
+.connection-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 0 14px;
+  height: 42px;
+  background: #fff3e0;
+  color: #e65100;
+  border-radius: 22px;
+  font-size: 14px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.connection-banner .pi-spinner {
+  font-size: 14px;
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 10px;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.user-menu-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-menu-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--tg-text);
+}
+
+.user-menu-status {
+  font-size: 13px;
+  color: var(--tg-blue);
+}
+
+.search-icon {
+  color: var(--tg-secondary);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  color: var(--tg-text);
+  outline: none;
   min-width: 0;
 }
 
-.search-item-name {
-  font-weight: 600;
-  font-size: 14px;
-  color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.search-input::placeholder {
+  color: var(--tg-secondary);
 }
 
-.search-item-email {
-  font-size: 12px;
-  color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.search-empty {
+.search-clear {
+  border: none;
+  background: transparent;
+  color: var(--tg-secondary);
+  cursor: pointer;
+  padding: 4px;
   display: flex;
-  flex-direction: column;
+  border-radius: 50%;
+}
+
+.search-clear:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.search-results {
+  border-bottom: 1px solid var(--tg-border);
+  max-height: 240px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.search-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tg-blue);
+  padding: 8px 20px 4px;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.search-state {
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
-  color: #94a3b8;
-  font-size: 14px;
-  gap: 4px;
-}
-
-.sidebar-filters {
-  display: flex;
-  padding: 8px 16px;
   gap: 8px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f8fafc;
+  padding: 20px;
+  color: var(--tg-secondary);
+  font-size: 14px;
 }
 
-.filter-tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-  color: #64748b;
-}
-
-.filter-tab:hover {
-  background: #e2e8f0;
-}
-
-.filter-tab.active {
-  background: #6366f1;
-  color: white;
-}
-
-.filter-tab.active .p-badge {
-  background: white;
-  color: #6366f1;
-}
-
-/* Chats List */
 .chats-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  overflow-x: hidden;
 }
 
-.loading-state,
-.empty-state {
+.chats-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chats-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+
+.list-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 200px;
-  color: #94a3b8;
-  gap: 8px;
+  gap: 12px;
+  padding: 48px 24px;
+  color: var(--tg-secondary);
+  font-size: 15px;
 }
 
-/* Chat Item */
-.chat-item {
+.list-state .pi-inbox {
+  font-size: 2.5rem;
+  opacity: 0.4;
+}
+
+.chat-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
-  border-radius: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
   cursor: pointer;
-  transition: all 0.15s ease;
+  text-align: left;
+  transition: background 0.12s ease;
+  position: relative;
 }
 
-.chat-item:hover {
-  background: #f1f5f9;
+.chat-row:hover {
+  background: var(--tg-hover);
 }
 
-.chat-item.active {
-  background: #e0e7ff;
+.chat-row.active {
+  background: var(--tg-active);
 }
 
-.chat-item.unread {
-  background: #fefce8;
+.chat-row.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--tg-blue);
+  border-radius: 0 2px 2px 0;
 }
 
-.chat-item.unread:hover {
-  background: #fef9c3;
-}
-
-.chat-avatar {
+.avatar-wrap {
   position: relative;
   flex-shrink: 0;
+}
+
+.chat-avatar-lg {
+  width: 54px !important;
+  height: 54px !important;
+  font-size: 1.25rem !important;
 }
 
 .status-dot {
   position: absolute;
   bottom: 2px;
   right: 2px;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  border: 2px solid white;
+  border: 2px solid var(--tg-sidebar-bg);
 }
 
 .status-dot.online {
-  background: #22c55e;
+  background: #4dcd5e;
 }
 
 .status-dot.offline {
-  background: #94a3b8;
+  background: #bdbdbd;
 }
 
-.type-icon {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  background: white;
-  border-radius: 50%;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.chat-info {
+.chat-row-body {
   flex: 1;
   min-width: 0;
 }
 
-.chat-top {
+.chat-row-top {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
 }
 
-.chat-name {
-  font-weight: 600;
-  font-size: 15px;
-  color: #1e293b;
+.chat-row-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--tg-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.chat-item.unread .chat-name {
-  font-weight: 700;
+.chat-row.unread .chat-row-name {
+  font-weight: 600;
 }
 
-.chat-time {
-  font-size: 12px;
-  color: #94a3b8;
+.chat-row-time {
+  font-size: 13px;
+  color: var(--tg-secondary);
   flex-shrink: 0;
 }
 
-.chat-bottom {
-  font-size: 14px;
-  color: #64748b;
+.chat-row.unread .chat-row-time {
+  color: var(--tg-blue);
+}
+
+.chat-row-bottom {
+  font-size: 15px;
+  color: var(--tg-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.35;
 }
 
-.chat-item.unread .chat-bottom {
-  color: #334155;
-  font-weight: 500;
+.chat-row.unread .chat-row-bottom {
+  color: var(--tg-text);
 }
 
 .typing {
-  color: #22c55e;
-  font-weight: 600;
-  animation: typing-pulse 1.5s infinite ease-in-out;
-}
-
-@keyframes typing-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(0.98); }
-  50% { opacity: 1; transform: scale(1); }
-}
-
-.sender {
-  color: #6366f1;
-  font-weight: 500;
-}
-
-.no-msg {
+  color: var(--tg-blue);
   font-style: italic;
-  color: #94a3b8;
 }
 
-.unread-badge {
+.you {
+  color: var(--tg-secondary);
+}
+
+.chat-row-preview.muted {
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.unread-pill {
   flex-shrink: 0;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tg-blue);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 11px;
 }
 
-/* Sidebar Footer */
-.sidebar-footer {
-  padding: 12px 16px;
-  border-top: 1px solid #e5e7eb;
-  background: #f8fafc;
-}
-
-/* Main Chat Area */
 .chat-area {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #f0f2f5;
+  min-width: 0;
+  background: #e6ebee;
   position: relative;
 }
 
@@ -809,31 +843,22 @@ function formatTime(timestamp) {
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+  border-bottom: 1px solid var(--tg-border);
   cursor: pointer;
-  color: #6366f1;
+  color: var(--tg-blue);
   font-weight: 500;
+  flex-shrink: 0;
 }
 
-/* Transitions */
 .chat-list-enter-active,
 .chat-list-leave-active {
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
-.chat-list-enter-from {
-  opacity: 0;
-  transform: translateX(-20px);
-}
-
+.chat-list-enter-from,
 .chat-list-leave-to {
   opacity: 0;
-  transform: translateX(20px);
-}
-
-.chat-list-move {
-  transition: transform 0.3s ease;
 }
 
 .slide-enter-active,
@@ -843,15 +868,14 @@ function formatTime(timestamp) {
 
 .slide-enter-from {
   opacity: 0;
-  transform: translateX(20px);
+  transform: translateX(12px);
 }
 
 .slide-leave-to {
   opacity: 0;
-  transform: translateX(-20px);
+  transform: translateX(-12px);
 }
 
-/* Mobile */
 @media (max-width: 767px) {
   .sidebar {
     position: absolute;
@@ -859,15 +883,11 @@ function formatTime(timestamp) {
     top: 0;
     bottom: 0;
     width: 100%;
-    z-index: 10;
+    max-width: 100%;
   }
 
   .sidebar-hidden {
     transform: translateX(-100%);
-  }
-
-  .chat-area {
-    width: 100%;
   }
 }
 </style>

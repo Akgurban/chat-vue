@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+:root {
+  --chat-bg-image: none;
+  --tg-blue: #3390ec;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;

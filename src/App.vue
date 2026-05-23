@@ -4,9 +4,11 @@
 
 <script setup>
 import { onMounted } from "vue";
-import { useAuthStore } from "./stores/auth";
-import { useChatStore } from "./stores/chat";
+import { useThemeStore } from "./stores/theme";
 
-const authStore = useAuthStore();
-const chatStore = useChatStore();
+const themeStore = useThemeStore();
+
+onMounted(() => {
+  themeStore.loadFromStorage();
+});
 </script>
